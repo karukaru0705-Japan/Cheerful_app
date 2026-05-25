@@ -1,0 +1,268 @@
+:root {
+  --primary: #2e7d6b;
+  --primary-dark: #1f5a4d;
+  --income: #2563eb;
+  --expense: #dc2626;
+  --bg: #f4f6f8;
+  --card: #ffffff;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --danger: #dc2626;
+  --warn-bg: #fff4e5;
+  --warn-border: #f59e0b;
+  --ok-bg: #e8f6f0;
+  --ok-border: #2e7d6b;
+  --nav-h: 64px;
+  --header-h: 60px;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.5;
+  padding-top: calc(var(--header-h) + env(safe-area-inset-top));
+  padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+}
+
+/* ヘッダー */
+.app-header {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+  height: calc(var(--header-h) + env(safe-area-inset-top));
+  padding-top: env(safe-area-inset-top);
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: #fff;
+  display: flex; align-items: center; justify-content: space-between;
+  padding-left: 16px; padding-right: 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.12);
+}
+.app-title { display: flex; flex-direction: column; }
+.app-name { font-weight: 700; font-size: 17px; }
+.app-year { font-size: 12px; opacity: .85; }
+.app-balance { text-align: right; }
+.balance-label { display: block; font-size: 11px; opacity: .85; }
+.balance-value { font-size: 19px; font-weight: 700; }
+
+/* ビュー */
+.view { display: none; padding: 16px; max-width: 640px; margin: 0 auto; }
+.view.active { display: block; animation: fade .2s ease; }
+@keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.view-title { font-size: 18px; margin: 4px 0 14px; }
+
+/* カード */
+.card {
+  background: var(--card); border-radius: 14px; padding: 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06); margin-bottom: 16px;
+}
+
+/* セグメント（収入/支出切替） */
+.seg { display: flex; background: var(--bg); border-radius: 10px; padding: 4px; margin-bottom: 16px; }
+.seg-btn {
+  flex: 1; border: none; background: transparent; padding: 10px; border-radius: 8px;
+  font-size: 15px; font-weight: 700; color: var(--muted); cursor: pointer;
+}
+.seg-btn.active[data-type="支出"] { background: var(--expense); color: #fff; }
+.seg-btn.active[data-type="収入"] { background: var(--income); color: #fff; }
+
+/* フォーム */
+.field { display: block; margin-bottom: 14px; }
+.field-label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
+.field input, .field select {
+  width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 10px;
+  font-size: 16px; background: #fff; color: var(--text);
+}
+.field input:focus, .field select:focus { outline: none; border-color: var(--primary); }
+
+.form-actions { display: flex; gap: 10px; margin-top: 8px; }
+
+/* ボタン */
+.btn {
+  border: none; border-radius: 10px; padding: 13px 16px; font-size: 16px; font-weight: 700;
+  cursor: pointer; flex: 1;
+}
+.btn.primary { background: var(--primary); color: #fff; }
+.btn.primary:active { background: var(--primary-dark); }
+.btn.ghost { background: #fff; color: var(--primary); border: 1.5px solid var(--primary); }
+.btn.danger { background: var(--danger); color: #fff; }
+.btn.small { flex: 0 0 auto; padding: 9px 14px; font-size: 14px; }
+.btn.full { width: 100%; margin-bottom: 10px; }
+.btn-text { background: none; border: none; color: var(--primary); font-size: 14px; cursor: pointer; padding: 4px; }
+.btn-text.danger { color: var(--danger); }
+
+/* 写真プレビュー */
+.photo-preview { margin-bottom: 14px; text-align: center; }
+.photo-preview img { max-width: 100%; max-height: 200px; border-radius: 10px; border: 1px solid var(--border); }
+
+/* 期間表示 */
+.list-period { text-align: center; font-size: 13px; color: var(--muted); margin-bottom: 10px; font-weight: 600; }
+.period-preview {
+  background: var(--ok-bg); border: 1px solid var(--ok-border); border-radius: 10px;
+  padding: 10px 12px; font-size: 14px; font-weight: 700; color: var(--primary-dark);
+  text-align: center; margin-bottom: 12px;
+}
+
+/* 一覧サマリー */
+.list-summary { display: flex; justify-content: space-around; text-align: center; }
+.list-summary div { display: flex; flex-direction: column; }
+.list-summary span { font-size: 12px; color: var(--muted); }
+.list-summary strong { font-size: 18px; }
+
+/* 取引一覧 */
+.tx-list { display: flex; flex-direction: column; gap: 8px; }
+.tx-item {
+  background: var(--card); border-radius: 12px; padding: 12px 14px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.05); display: flex; align-items: center; gap: 10px;
+}
+.tx-main { flex: 1; min-width: 0; }
+.tx-desc { font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tx-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.tx-cat-badge { display: inline-block; padding: 1px 7px; border-radius: 6px; font-size: 11px; background: var(--bg); margin-right: 6px; }
+.tx-right { text-align: right; flex: 0 0 auto; }
+.tx-amount { font-weight: 700; font-size: 15px; }
+.tx-amount.収入 { color: var(--income); }
+.tx-amount.支出 { color: var(--expense); }
+.tx-balance { font-size: 11px; color: var(--muted); }
+.tx-photo-ico { font-size: 12px; }
+.tx-actions { display: flex; gap: 6px; margin-left: 4px; }
+.tx-actions button { border: none; background: var(--bg); border-radius: 8px; width: 34px; height: 34px; font-size: 15px; cursor: pointer; }
+
+.empty-msg { text-align: center; color: var(--muted); padding: 30px 10px; }
+
+/* 集計テーブル */
+.block-title { font-size: 15px; margin: 0 0 10px; padding-left: 8px; border-left: 4px solid var(--primary); }
+.block-title.income { border-color: var(--income); }
+.block-title.expense { border-color: var(--expense); }
+.sum-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.sum-table td { padding: 8px 4px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.sum-table td.cat { font-weight: 600; }
+.sum-table td.amt { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sum-table td.detail { font-size: 11px; color: var(--muted); }
+.sum-table tr.subtotal td { font-weight: 700; border-top: 2px solid var(--text); border-bottom: none; }
+
+.total-card .total-row { display: flex; justify-content: space-between; padding: 8px 4px; font-size: 15px; }
+.total-card .total-row.grand { border-top: 2px solid var(--text); margin-top: 4px; padding-top: 12px; font-size: 18px; }
+.total-card .total-row.grand strong { color: var(--primary); }
+
+/* 整合チェック */
+.integrity { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; }
+.integrity.ok { background: var(--ok-bg); border: 1px solid var(--ok-border); }
+.integrity.warn { background: var(--warn-bg); border: 1px solid var(--warn-border); }
+.integrity .ico { font-size: 20px; }
+
+/* カテゴリ管理 */
+.cat-group { margin-bottom: 16px; }
+.cat-group h4 { margin: 0 0 8px; font-size: 14px; }
+.cat-group h4.income { color: var(--income); }
+.cat-group h4.expense { color: var(--expense); }
+.cat-list { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.cat-list li { background: var(--bg); border-radius: 8px; padding: 6px 10px; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.cat-list li button { border: none; background: none; color: var(--danger); cursor: pointer; font-size: 14px; padding: 0; }
+.cat-add { display: flex; gap: 8px; }
+.cat-add input { flex: 1; padding: 9px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; }
+
+.danger-zone .btn { margin-top: 4px; }
+.file-btn { display: block; text-align: center; line-height: 1.2; }
+
+/* ボトムナビ */
+.bottom-nav {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 50;
+  height: calc(var(--nav-h) + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
+  background: #fff; border-top: 1px solid var(--border);
+  display: flex;
+}
+.nav-btn {
+  flex: 1; border: none; background: none; color: var(--muted);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  font-size: 11px; cursor: pointer;
+}
+.nav-btn .nav-ico { font-size: 22px; line-height: 1; }
+.nav-btn.active { color: var(--primary); font-weight: 700; }
+
+/* トースト */
+.toast {
+  position: fixed; bottom: calc(var(--nav-h) + 20px); left: 50%; transform: translateX(-50%);
+  background: rgba(31,41,55,.95); color: #fff; padding: 12px 20px; border-radius: 24px;
+  font-size: 14px; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,.2); max-width: 90%;
+}
+.toast.hidden { display: none; }
+
+/* 画像モーダル */
+.img-modal {
+  position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.85);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.img-modal img { max-width: 100%; max-height: 100%; border-radius: 8px; }
+
+/* 部費グリッド（案2：記号中心） */
+.fee-grid-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -4px; }
+.fee-grid { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.fee-grid th, .fee-grid td { border: 1px solid var(--border); text-align: center; padding: 0; }
+.fee-grid th { background: #f0f4f3; font-weight: 700; font-size: 11px; padding: 6px 4px; white-space: nowrap; }
+.fee-grid th.name-col, .fee-grid td.name-col {
+  position: sticky; left: 0; z-index: 2; background: #f7faf9; text-align: left;
+  padding: 6px 8px; white-space: nowrap; font-weight: 600; font-size: 13px; min-width: 78px;
+  box-shadow: 1px 0 0 var(--border);
+}
+.fee-grid th.name-col { z-index: 3; }
+.fee-cell { width: 54px; height: 46px; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; }
+.fee-cell .fee-mark { font-size: 17px; line-height: 1; }
+.fee-cell .fee-amt { font-size: 9px; color: var(--muted); }
+.fee-cell .fee-dash { color: #d1d5db; font-size: 15px; }
+.fee-mark.done { color: var(--primary); }
+.fee-mark.plan { color: #b0b8c0; }
+.fee-mark.done.rest { color: #f59e0b; }
+.fee-mark.plan.rest { color: #fbbf24; }
+.fee-grid td.sub-col { font-weight: 700; background: #f7faf9; font-size: 12px; padding: 0 8px; white-space: nowrap; }
+.fee-grid tr.fee-total td { font-weight: 700; background: #eef5f2; font-size: 12px; padding: 6px 4px; }
+
+.fee-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; font-size: 11px; color: var(--muted); }
+.fee-legend span { display: inline-flex; align-items: center; gap: 3px; }
+.fee-legend .fee-mark { font-size: 14px; }
+
+/* アクションシート */
+.sheet-backdrop { position: fixed; inset: 0; z-index: 150; background: rgba(0,0,0,.4); display: flex; align-items: flex-end; }
+.sheet {
+  width: 100%; background: #fff; border-radius: 16px 16px 0 0; padding: 10px 12px calc(12px + env(safe-area-inset-bottom));
+  animation: slideUp .2s ease;
+}
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: none; } }
+.sheet-title { text-align: center; font-weight: 700; padding: 8px 0 12px; color: var(--muted); font-size: 14px; }
+.sheet-btn {
+  width: 100%; border: none; background: var(--bg); border-radius: 10px; padding: 14px; margin-bottom: 8px;
+  font-size: 16px; font-weight: 600; color: var(--text); cursor: pointer; display: flex; align-items: center; gap: 10px;
+}
+.sheet-btn .fee-mark { font-size: 18px; }
+.sheet-btn.muted { color: var(--muted); }
+.sheet-btn.cancel { background: #fff; color: var(--danger); font-weight: 700; }
+
+/* 会計報告プレビュー（提出フォーム風） */
+.report-modal { position: fixed; inset: 0; z-index: 180; background: rgba(0,0,0,.55); overflow: auto; padding: 16px; }
+.report-actions { display: flex; gap: 10px; max-width: 720px; margin: 0 auto 12px; }
+.report-body { background: #fff; max-width: 720px; margin: 0 auto; padding: 22px; border-radius: 8px; color: #111; }
+.report-title { text-align: center; font-size: 17px; font-weight: 700; line-height: 1.5; margin-bottom: 16px; }
+.report-table { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 13px; }
+.report-table th, .report-table td { border: 1px solid #333; padding: 6px 8px; vertical-align: top; }
+.report-table th { background: #eee; text-align: center; font-weight: 700; }
+.report-table td.vlabel { writing-mode: vertical-rl; text-orientation: upright; text-align: center; font-weight: 700; background: #f4f4f4; width: 30px; letter-spacing: 4px; }
+.report-table td.amt { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.report-table td.dtl { font-size: 11px; color: #444; white-space: pre-wrap; }
+.report-table tr.tot td { font-weight: 700; background: #f4f4f4; }
+.report-balance { text-align: right; font-size: 16px; font-weight: 700; padding: 10px 12px; border: 2px solid #333; border-radius: 4px; }
+.report-sub { text-align: right; font-size: 12px; color: #444; margin-top: 6px; }
+
+/* 印刷／PDF: アプリのUIを隠して報告書だけ印刷 */
+@media print {
+  body { padding: 0 !important; background: #fff !important; }
+  .app-header, .bottom-nav, main, #toast, #imgModal, #feeSheet { display: none !important; }
+  .report-modal { position: static !important; background: #fff !important; padding: 0 !important; overflow: visible !important; }
+  .no-print { display: none !important; }
+  .report-body { max-width: none !important; box-shadow: none !important; border-radius: 0 !important; padding: 0 !important; }
+  .report-table td.dtl { color: #000; }
+}
+
+.hidden { display: none !important; }

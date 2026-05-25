@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#2e7d6b" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>チアフル会計</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <!-- ヘッダー -->
+  <header class="app-header">
+    <div class="app-title">
+      <span class="app-name">チアフル会計</span>
+      <span id="headerYear" class="app-year">―</span>
+    </div>
+    <div class="app-balance">
+      <span class="balance-label">現在残高</span>
+      <span id="headerBalance" class="balance-value">¥0</span>
+    </div>
+  </header>
+
+  <!-- メイン -->
+  <main id="main">
+    <!-- 入力ビュー -->
+    <section id="view-entry" class="view active">
+      <h2 class="view-title">収支を入力</h2>
+      <form id="entryForm" class="card">
+        <input type="hidden" id="entryId" />
+
+        <div class="seg" role="tablist">
+          <button type="button" class="seg-btn active" data-type="支出" id="segExpense">支出</button>
+          <button type="button" class="seg-btn" data-type="収入" id="segIncome">収入</button>
+        </div>
+
+        <label class="field">
+          <span class="field-label">日付</span>
+          <input type="date" id="entryDate" required />
+        </label>
+
+        <label class="field">
+          <span class="field-label">カテゴリ</span>
+          <select id="entryCategory" required></select>
+        </label>
+
+        <label class="field">
+          <span class="field-label">金額（円）</span>
+          <input type="number" id="entryAmount" inputmode="numeric" min="0" step="1" placeholder="0" required />
+        </label>
+
+        <label class="field">
+          <span class="field-label" id="descLabel">支出内訳（任意入力）</span>
+          <input type="text" id="entryDesc" placeholder="例：体育館使用料、交流大会参加費、忘年会" />
+        </label>
+
+        <label class="field">
+          <span class="field-label">領収書写真（任意）</span>
+          <input type="file" id="entryPhoto" accept="image/*" />
+        </label>
+        <div id="photoPreview" class="photo-preview hidden">
+          <img id="photoPreviewImg" alt="領収書プレビュー" />
+          <button type="button" id="photoRemove" class="btn-text danger">写真を削除</button>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn primary" id="entrySubmit">追加する</button>
+          <button type="button" class="btn ghost hidden" id="entryCancel">編集をやめる</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- 一覧ビュー -->
+    <section id="view-list" class="view">
+      <h2 class="view-title">取引一覧</h2>
+      <div id="listPeriod" class="list-period"></div>
+      <div class="list-summary card">
+        <div><span>前年度繰越金</span><strong id="listCarryover">¥0</strong></div>
+        <div><span>期末残高</span><strong id="listEndBalance">¥0</strong></div>
+      </div>
+      <div id="txList" class="tx-list"></div>
+      <p id="txEmpty" class="empty-msg hidden">まだ取引がありません。「入力」から追加してください。</p>
+    </section>
+
+    <!-- 部費ビュー -->
+    <section id="view-fee" class="view">
+      <h2 class="view-title">部費の管理</h2>
+      <div id="feePeriod" class="list-period"></div>
+
+      <div class="card">
+        <h3 class="block-title">メンバー</h3>
+        <ul id="memberList" class="cat-list"></ul>
+        <div class="cat-add">
+          <input type="text" id="newMember" placeholder="メンバー名を追加" />
+          <button type="button" class="btn small" id="addMember">追加</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 class="block-title">納付状況（タップで設定）</h3>
+        <p id="feeHint" class="empty-msg hidden">メンバーを追加すると表が表示されます。</p>
+        <div id="feeGridWrap" class="fee-grid-wrap"></div>
+        <div class="fee-legend">
+          <span><span class="fee-mark done">●</span>参加・集金済</span>
+          <span><span class="fee-mark plan">◯</span>参加・未集金</span>
+          <span><span class="fee-mark done rest">●</span>お休み・集金済(500)</span>
+          <span><span class="fee-mark plan rest">◯</span>お休み・未集金(500)</span>
+          <span>– =対象外</span>
+        </div>
+      </div>
+
+      <div class="card total-card">
+        <div class="total-row"><span>済合計（実際に集まった額）</span><strong id="feeDone">¥0</strong></div>
+        <div class="total-row"><span>予定合計（本来の額）</span><strong id="feePlan">¥0</strong></div>
+        <div class="total-row"><span>未集金</span><strong id="feeUnpaid">¥0</strong></div>
+      </div>
+    </section>
+
+    <!-- 集計ビュー -->
+    <section id="view-summary" class="view">
+      <h2 class="view-title">集計・提出フォーム</h2>
+      <div id="integrityBox" class="integrity card hidden"></div>
+
+      <div class="card">
+        <h3 class="block-title income">収入</h3>
+        <table class="sum-table" id="incomeTable"></table>
+      </div>
+
+      <div class="card">
+        <h3 class="block-title expense">支出</h3>
+        <table class="sum-table" id="expenseTable"></table>
+      </div>
+
+      <div class="card total-card">
+        <div class="total-row"><span>収入合計</span><strong id="sumIncome">¥0</strong></div>
+        <div class="total-row"><span>支出合計</span><strong id="sumExpense">¥0</strong></div>
+        <div class="total-row grand"><span>差引残高</span><strong id="sumBalance">¥0</strong></div>
+      </div>
+
+      <button type="button" class="btn ghost full" id="openReport">会計報告プレビュー（印刷・PDF）</button>
+      <button type="button" class="btn primary full" id="exportExcel">Excelで書き出す</button>
+    </section>
+
+    <!-- 設定ビュー -->
+    <section id="view-settings" class="view">
+      <h2 class="view-title">設定</h2>
+
+      <!-- 集計期間 -->
+      <div class="card">
+        <h3 class="block-title">集計期間</h3>
+        <div class="seg" role="tablist">
+          <button type="button" class="seg-btn period-mode active" data-mode="scale">スケール</button>
+          <button type="button" class="seg-btn period-mode" data-mode="manual">手動</button>
+        </div>
+
+        <div id="scaleFields">
+          <label class="field">
+            <span class="field-label">期間の単位</span>
+            <select id="periodScale">
+              <option value="3">四半期（3ヶ月）</option>
+              <option value="6">半期（6ヶ月）</option>
+              <option value="12">年度（12ヶ月）</option>
+              <option value="1">1ヶ月</option>
+              <option value="custom">カスタム（月数指定）</option>
+            </select>
+          </label>
+          <label class="field hidden" id="customMonthsField">
+            <span class="field-label">月数</span>
+            <input type="number" id="periodCustomMonths" inputmode="numeric" min="1" step="1" placeholder="12" />
+          </label>
+          <label class="field">
+            <span class="field-label">開始年月</span>
+            <input type="month" id="periodStartScale" />
+          </label>
+        </div>
+
+        <div id="manualFields" class="hidden">
+          <label class="field">
+            <span class="field-label">開始年月</span>
+            <input type="month" id="periodStartManual" />
+          </label>
+          <label class="field">
+            <span class="field-label">終了年月</span>
+            <input type="month" id="periodEndManual" />
+          </label>
+        </div>
+
+        <div id="periodPreview" class="period-preview"></div>
+        <button type="button" class="btn primary full" id="savePeriod">期間を保存</button>
+      </div>
+
+      <form id="settingsForm" class="card">
+        <label class="field">
+          <span class="field-label">年度名（Excelのファイル名・見出しに使用）</span>
+          <input type="text" id="setYear" placeholder="例：2025年度" />
+        </label>
+        <label class="field">
+          <span class="field-label">前年度繰越金（円／この期間の期首残高）</span>
+          <input type="number" id="setCarryover" inputmode="numeric" step="1" placeholder="0" />
+        </label>
+        <label class="field">
+          <span class="field-label">月会費（円／部費の基本レート）</span>
+          <input type="number" id="setFee" inputmode="numeric" step="1" placeholder="1000" />
+        </label>
+        <div class="form-actions">
+          <button type="submit" class="btn primary">設定を保存</button>
+        </div>
+      </form>
+
+      <div class="card">
+        <h3 class="block-title">カテゴリ管理</h3>
+        <div class="cat-group">
+          <h4 class="income">収入カテゴリ</h4>
+          <ul id="incomeCatList" class="cat-list"></ul>
+          <div class="cat-add">
+            <input type="text" id="newIncomeCat" placeholder="新しい収入カテゴリ" />
+            <button type="button" class="btn small" data-cattype="収入" id="addIncomeCat">追加</button>
+          </div>
+        </div>
+        <div class="cat-group">
+          <h4 class="expense">支出カテゴリ</h4>
+          <ul id="expenseCatList" class="cat-list"></ul>
+          <div class="cat-add">
+            <input type="text" id="newExpenseCat" placeholder="新しい支出カテゴリ" />
+            <button type="button" class="btn small" data-cattype="支出" id="addExpenseCat">追加</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card danger-zone">
+        <h3 class="block-title">データ管理</h3>
+        <button type="button" class="btn ghost full" id="exportJson">バックアップを書き出す（JSON）</button>
+        <label class="btn ghost full file-btn">
+          バックアップを読み込む（JSON）
+          <input type="file" id="importJson" accept="application/json" hidden />
+        </label>
+        <button type="button" class="btn danger full" id="resetData">全データを削除</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- ボトムナビ -->
+  <nav class="bottom-nav">
+    <button class="nav-btn active" data-view="entry"><span class="nav-ico">＋</span><span>入力</span></button>
+    <button class="nav-btn" data-view="list"><span class="nav-ico">≣</span><span>一覧</span></button>
+    <button class="nav-btn" data-view="fee"><span class="nav-ico">👥</span><span>部費</span></button>
+    <button class="nav-btn" data-view="summary"><span class="nav-ico">∑</span><span>集計</span></button>
+    <button class="nav-btn" data-view="settings"><span class="nav-ico">⚙</span><span>設定</span></button>
+  </nav>
+
+  <!-- トースト -->
+  <div id="toast" class="toast hidden"></div>
+
+  <!-- 画像拡大モーダル -->
+  <div id="imgModal" class="img-modal hidden">
+    <img id="imgModalImg" alt="領収書" />
+  </div>
+
+  <!-- 会計報告プレビュー（提出フォーム風） -->
+  <div id="reportModal" class="report-modal hidden">
+    <div class="report-actions no-print">
+      <button type="button" class="btn ghost" id="reportClose">閉じる</button>
+      <button type="button" class="btn primary" id="reportPrint">印刷／PDF保存</button>
+    </div>
+    <div id="reportBody" class="report-body"></div>
+  </div>
+
+  <!-- 部費セルの選択メニュー（アクションシート） -->
+  <div id="feeSheet" class="sheet-backdrop hidden">
+    <div class="sheet">
+      <div class="sheet-title" id="feeSheetTitle">状態を選択</div>
+      <button type="button" class="sheet-btn" data-status="done1"><span class="fee-mark done">●</span>参加・集金済（1,000円）</button>
+      <button type="button" class="sheet-btn" data-status="plan1"><span class="fee-mark plan">◯</span>参加・未集金（1,000円）</button>
+      <button type="button" class="sheet-btn" data-status="done5"><span class="fee-mark done rest">●</span>お休み・集金済（500円）</button>
+      <button type="button" class="sheet-btn" data-status="plan5"><span class="fee-mark plan rest">◯</span>お休み・未集金（500円）</button>
+      <button type="button" class="sheet-btn muted" data-status="">対象外（空白にする）</button>
+      <button type="button" class="sheet-btn cancel" data-status="cancel">キャンセル</button>
+    </div>
+  </div>
+
+  <script src="lib/xlsx.full.min.js"></script>
+  <script src="js/db.js"></script>
+  <script src="js/export.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
