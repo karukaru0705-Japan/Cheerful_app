@@ -248,9 +248,6 @@ body {
 .fee-toolbar { display: flex; gap: 8px; margin-bottom: 6px; }
 .fee-toolbar .btn { flex: 1; padding: 10px; font-size: 14px; }
 .fee-grid-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -4px; }
-.fee-grid-wrap.drag-mode { background: rgba(46, 125, 107, 0.06); border-radius: 6px; }
-.fee-grid-wrap.drag-mode .fee-cell { touch-action: none; }
-#dragModeToggle.on { background: var(--primary); color: #fff; }
 .fee-grid { border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .fee-grid th, .fee-grid td { border: 1px solid var(--border); text-align: center; padding: 0; }
 .fee-grid th { background: #f0f4f3; font-weight: 700; font-size: 11px; padding: 6px 4px; white-space: nowrap; }
@@ -260,12 +257,11 @@ body {
   box-shadow: 1px 0 0 var(--border);
 }
 .fee-grid th.name-col { z-index: 3; }
-.fee-cell { width: 58px; height: 56px; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; user-select: none; -webkit-user-select: none; touch-action: pan-y; }
+.fee-cell { width: 74px; height: 58px; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; user-select: none; -webkit-user-select: none; }
 .fee-cell .fee-mark { font-size: 16px; line-height: 1; }
-.fee-cell .fee-amt { font-size: 10px; color: var(--text); font-weight: 600; line-height: 1.1; margin-top: 1px; }
-.fee-cell .fee-date { font-size: 9px; color: var(--muted); line-height: 1; margin-top: 1px; }
+.fee-cell .fee-amt { font-size: 11px; color: var(--text); font-weight: 600; line-height: 1.1; margin-top: 1px; }
+.fee-cell .fee-date { font-size: 9px; color: var(--muted); line-height: 1; margin-top: 2px; white-space: nowrap; }
 .fee-cell .fee-dash { color: #d1d5db; font-size: 15px; }
-.fee-cell.dragging-over { background: rgba(46, 125, 107, 0.15); }
 .fee-mark.done { color: var(--primary); }
 .fee-mark.plan { color: #b0b8c0; }
 .fee-mark.done.rest { color: #f59e0b; }
@@ -351,6 +347,15 @@ body {
 .report-event-list td.amt { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .report-event-list tr.tot td { font-weight: 700; background: #f4f4f4; }
 
+/* 全取引一覧 */
+.report-tx-list { width: 100%; border-collapse: collapse; font-size: 11px; }
+.report-tx-list th, .report-tx-list td { border: 1px solid #333; padding: 4px 6px; vertical-align: top; }
+.report-tx-list th { background: #eee; font-weight: 700; }
+.report-tx-list td.amt { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.report-tx-list tr.fee td { background: rgba(37, 99, 235, .05); }
+.report-tx-list tr.auto td { background: rgba(245, 158, 11, .07); font-style: italic; }
+.report-tx-list tr.tot td { font-weight: 700; background: #f4f4f4; }
+
 .audit-block { margin-top: 20px; }
 .audit-row { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 36px; padding-bottom: 8px; border-bottom: 1.5px solid #333; }
 .audit-row .audit-label { flex: 0 0 96px; font-weight: 700; }
@@ -370,10 +375,13 @@ body {
   .no-print { display: none !important; }
   .report-body { max-width: none !important; box-shadow: none !important; border-radius: 0 !important; padding: 0 !important; }
   .report-table td.dtl { color: #000; }
-  /* 多ページ：各ページの先頭で改ページ */
+  /* 多ページ：各セクションの先頭で改ページ */
   .report-page { padding: 0; }
   .report-page + .report-page { page-break-before: always; border-top: none; margin-top: 0; padding-top: 0; }
-  .report-page table, .audit-row { page-break-inside: avoid; }
+  /* 長い表は複数ページに分割可。ただし行・監査行は分割しない */
+  .report-table tr, .report-fee-grid tr, .report-event-list tr, .report-tx-list tr, .audit-row-big { page-break-inside: avoid; }
+  thead { display: table-header-group; } /* 各ページに見出しを繰り返し */
+  tfoot { display: table-footer-group; }
   @page { size: A4; margin: 14mm; }
 }
 

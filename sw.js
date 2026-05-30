@@ -1,5 +1,5 @@
 // チアフル会計 Service Worker
-const CACHE = 'cheerful-kaikei-v11';
+const CACHE = 'cheerful-kaikei-v12';
 const ASSETS = [
   './',
   './index.html',

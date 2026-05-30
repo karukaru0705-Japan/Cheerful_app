@@ -55,9 +55,6 @@
     listView: 'cards',     // 取引一覧の表示形式: 'cards' | 'table'
     feeTarget: null,
     bulkPayTarget: null,
-    dragMode: false,
-    dragActive: false,
-    dragSet: null,
     retireTarget: null,
     undoStack: []
   };
@@ -705,10 +702,34 @@
     const eventListHtml = events.length === 0
       ? '<p>（納付履歴はまだありません）</p>'
       : `<table class="report-event-list">
-          <tr><th>納付日</th><th>内容</th><th class="amt">金額</th></tr>
+          <thead><tr><th>納付日</th><th>内容</th><th class="amt">金額</th></tr></thead>
+          <tbody>
           ${events.map((e) => `<tr><td>${e.known ? e.date : '日付未記録'}</td><td>${esc(e.desc)}</td><td class="amt">${yf(e.amount)}</td></tr>`).join('')}
           <tr class="tot"><td colspan="2">納付合計</td><td class="amt">${yf(events.reduce((s, e) => s + e.amount, 0))}</td></tr>
+          </tbody>
         </table>`;
+
+    // --- 全取引一覧（古い順・残高付き）---
+    const txListHtml = (agg.allItems && agg.allItems.length > 0)
+      ? `<table class="report-tx-list">
+          <thead><tr><th>日付</th><th>種別</th><th>カテゴリ</th><th>内容</th><th class="amt">金額</th><th class="amt">残高</th></tr></thead>
+          <tbody>
+          ${agg.allItems.map((it) => {
+            const sign = it.type === '収入' ? '+' : '−';
+            const rowCls = it.source === 'fee' ? 'fee' : (it.source === 'auto' ? 'auto' : '');
+            return `<tr class="${rowCls}">
+              <td>${esc(it.date || '')}</td>
+              <td>${it.type}</td>
+              <td>${esc(it.category)}</td>
+              <td>${esc(it.desc || '')}</td>
+              <td class="amt">${sign}${yf(it.amount)}</td>
+              <td class="amt">${yf(it.runningBalance)}</td>
+            </tr>`;
+          }).join('')}
+          <tr class="tot"><td colspan="5">期末残高</td><td class="amt">${yf(agg.balance)}</td></tr>
+          </tbody>
+        </table>`
+      : '<p>（取引はまだありません）</p>';
 
     const today = todayStr();
 
@@ -730,6 +751,7 @@
           <li>収支報告</li>
           <li>部費納付一覧（メンバー×月）</li>
           <li>部費納付履歴（日付順）</li>
+          <li>全取引一覧（古い順・残高付き）</li>
           <li>監査確認</li>
         </ol>
       </div>
@@ -763,9 +785,15 @@
         ${eventListHtml}
       </div>
 
-      <!-- 4. 監査確認 -->
+      <!-- 4. 全取引一覧 -->
       <div class="report-page">
-        <h2 class="page-title">4. 監査確認</h2>
+        <h2 class="page-title">4. 全取引一覧（古い順・残高付き）</h2>
+        ${txListHtml}
+      </div>
+
+      <!-- 5. 監査確認 -->
+      <div class="report-page">
+        <h2 class="page-title">5. 監査確認</h2>
         <p>本会計報告書の内容を確認しました。</p>
         <div class="audit-block">
           <div class="audit-row-big">
@@ -826,8 +854,12 @@
 
   function feeCellInner(st, fee, paidDate) {
     if (st === 'done1') {
-      const dateShort = paidDate ? `${Number(paidDate.split('-')[1])}/${Number(paidDate.split('-')[2])}` : '';
-      return `<span class="fee-mark done">●</span><span class="fee-amt">${fee.toLocaleString('ja-JP')}</span>${dateShort ? `<span class="fee-date">${dateShort}</span>` : ''}`;
+      let dateFull = '';
+      if (paidDate) {
+        const [y, m, d] = paidDate.split('-').map(Number);
+        dateFull = `${y}/${m}/${d}`;
+      }
+      return `<span class="fee-mark done">●</span><span class="fee-amt">${fee.toLocaleString('ja-JP')}</span>${dateFull ? `<span class="fee-date">${dateFull}</span>` : ''}`;
     }
     if (st === 'plan1') return `<span class="fee-mark plan">◯</span><span class="fee-amt">${fee.toLocaleString('ja-JP')}</span>`;
     return `<span class="fee-dash">–</span>`;
@@ -884,7 +916,6 @@
       wrap.innerHTML = buildFeeGrid(t);
       wrap.querySelectorAll('.fee-cell').forEach((cell) => {
         cell.addEventListener('click', () => {
-          if (state.dragMode) return; // ドラッグモード時は通常タップ無効
           const mid = cell.dataset.member;
           const member = t.members.find((x) => String(x.id) === String(mid));
           openFeeSheet(mid, cell.dataset.ym, member ? member.name : '');
@@ -1136,31 +1167,6 @@
     });
   }
 
-  function toggleDragMode() {
-    state.dragMode = !state.dragMode;
-    const btn = $('#dragModeToggle');
-    btn.textContent = state.dragMode ? '🖱 ドラッグモード：ON' : '🖱 ドラッグモード：OFF';
-    btn.classList.toggle('on', state.dragMode);
-    $('#feeGridWrap').classList.toggle('drag-mode', state.dragMode);
-  }
-
-  async function endDrag() {
-    if (!state.dragActive) return;
-    state.dragActive = false;
-    const date = todayStr();
-    const toApply = Array.from(state.dragSet || []);
-    state.dragSet = new Set();
-    if (toApply.length > 0) {
-      await pushUndoSnapshot(`ドラッグで集金済化（${toApply.length}セル）`);
-      for (const key of toApply) await DB.setFeeCell(key, 'done1', date);
-      await renderFee();
-      await refreshHeader();
-      toastUndo(`${toApply.length}セルを集金済にしました`);
-    } else {
-      $$('.fee-cell.dragging-over').forEach((c) => c.classList.remove('dragging-over'));
-    }
-  }
-
   function bindFee() {
     $('#addMember').addEventListener('click', addMemberHandler);
     $('#newMember').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addMemberHandler(); } });
@@ -1175,36 +1181,8 @@
     $('#retireCancel').addEventListener('click', closeRetireSheet);
     $('#retireConfirm').addEventListener('click', confirmRetire);
     $('#retireMonth').addEventListener('input', updateRetirePreview);
-    // トップの一括入力／ドラッグモード
+    // トップの一括入力
     $('#openBulkAll').addEventListener('click', openBulkAll);
-    $('#dragModeToggle').addEventListener('click', toggleDragMode);
-    // ドラッグハンドラ（feeGridWrap上）
-    const wrap = $('#feeGridWrap');
-    wrap.addEventListener('pointerdown', (e) => {
-      if (!state.dragMode) return;
-      const cell = e.target.closest('.fee-cell');
-      if (!cell) return;
-      e.preventDefault();
-      state.dragActive = true;
-      state.dragSet = new Set();
-      state.dragSet.add(`${cell.dataset.member}|${cell.dataset.ym}`);
-      cell.classList.add('dragging-over');
-      try { wrap.setPointerCapture(e.pointerId); } catch (_) {}
-    });
-    wrap.addEventListener('pointermove', (e) => {
-      if (!state.dragActive || !state.dragMode) return;
-      const el = document.elementFromPoint(e.clientX, e.clientY);
-      const cell = el && el.closest && el.closest('.fee-cell');
-      if (!cell) return;
-      const key = `${cell.dataset.member}|${cell.dataset.ym}`;
-      if (!state.dragSet.has(key)) {
-        state.dragSet.add(key);
-        cell.classList.add('dragging-over');
-      }
-    });
-    wrap.addEventListener('pointerup', endDrag);
-    wrap.addEventListener('pointercancel', endDrag);
-    wrap.addEventListener('pointerleave', endDrag);
     $$('#feeSheet .sheet-btn').forEach((btn) => btn.addEventListener('click', async () => {
       const status = btn.dataset.status;
       if (status === 'cancel') { closeFeeSheet(); return; }
