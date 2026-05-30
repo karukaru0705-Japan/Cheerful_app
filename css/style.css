@@ -65,6 +65,7 @@ body {
   flex: 1; border: none; background: transparent; padding: 10px; border-radius: 8px;
   font-size: 15px; font-weight: 700; color: var(--muted); cursor: pointer;
 }
+.seg-btn.active { background: var(--primary); color: #fff; }
 .seg-btn.active[data-type="支出"] { background: var(--expense); color: #fff; }
 .seg-btn.active[data-type="収入"] { background: var(--income); color: #fff; }
 
@@ -113,6 +114,9 @@ body {
 
 /* 取引一覧 */
 .tx-list { display: flex; flex-direction: column; gap: 8px; }
+.tx-month { font-size: 12px; font-weight: 700; color: var(--muted); margin: 12px 4px 4px; padding-left: 4px; border-left: 3px solid var(--primary); padding-top:2px;padding-bottom:2px; }
+.tx-month:first-child { margin-top: 0; }
+.tx-item.fee-event { border-left: 3px solid var(--income); padding-left: 11px; }
 .tx-item {
   background: var(--card); border-radius: 12px; padding: 12px 14px;
   box-shadow: 0 1px 2px rgba(0,0,0,.05); display: flex; align-items: center; gap: 10px;
@@ -220,9 +224,23 @@ body {
 .fee-grid td.sub-col { font-weight: 700; background: #f7faf9; font-size: 12px; padding: 0 8px; white-space: nowrap; }
 .fee-grid tr.fee-total td { font-weight: 700; background: #eef5f2; font-size: 12px; padding: 6px 4px; }
 
+.bulk-pay-btn {
+  margin-left: 6px; border: none; background: var(--bg); border-radius: 6px;
+  width: 24px; height: 24px; cursor: pointer; font-size: 12px; padding: 0; vertical-align: middle;
+}
+.bulk-pay-btn:active { background: var(--primary); color: #fff; }
+
 .fee-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; font-size: 11px; color: var(--muted); }
 .fee-legend span { display: inline-flex; align-items: center; gap: 3px; }
 .fee-legend .fee-mark { font-size: 14px; }
+
+/* 部費 納付履歴 */
+.fee-event-row { display: flex; align-items: center; gap: 8px; padding: 8px 4px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.fee-event-row:last-child { border-bottom: none; }
+.fee-event-row .ev-date { flex: 0 0 80px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.fee-event-row .ev-desc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.fee-event-row .ev-amount { font-weight: 700; color: var(--income); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fee-event-row.unknown .ev-date { color: var(--warn-border); font-weight: 600; }
 
 /* アクションシート */
 .sheet-backdrop { position: fixed; inset: 0; z-index: 150; background: rgba(0,0,0,.4); display: flex; align-items: flex-end; }
@@ -255,6 +273,39 @@ body {
 .report-balance { text-align: right; font-size: 16px; font-weight: 700; padding: 10px 12px; border: 2px solid #333; border-radius: 4px; }
 .report-sub { text-align: right; font-size: 12px; color: #444; margin-top: 6px; }
 
+/* 多ページ報告書 */
+.report-page { padding: 24px 4px; }
+.report-page + .report-page { border-top: 1px dashed #bbb; margin-top: 16px; padding-top: 32px; }
+.report-page .page-title { font-size: 17px; font-weight: 700; margin: 0 0 4px; padding-bottom: 6px; border-bottom: 2px solid #333; }
+.report-page .page-sub { font-size: 13px; color: #555; margin-bottom: 14px; }
+
+.cover-page { min-height: 70vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.cover-team { font-size: 26px; font-weight: 700; margin-bottom: 12px; }
+.cover-title { font-size: 32px; font-weight: 900; margin: 12px 0 40px; letter-spacing: 2px; }
+.cover-meta { font-size: 14px; color: #444; line-height: 2; }
+
+.toc-list { font-size: 16px; line-height: 2.2; margin: 12px 16px; }
+
+.report-fee-grid { width: 100%; border-collapse: collapse; font-size: 12px; }
+.report-fee-grid th, .report-fee-grid td { border: 1px solid #333; padding: 5px 4px; text-align: center; }
+.report-fee-grid th { background: #eee; font-weight: 700; }
+.report-fee-grid td.name-col { text-align: left; padding: 5px 8px; font-weight: 600; background: #f7f7f7; }
+.report-fee-grid td.sub-col { font-weight: 700; background: #f7f7f7; white-space: nowrap; }
+.report-fee-grid tr.tot td { font-weight: 700; background: #f4f4f4; }
+.report-fee-legend { font-size: 11px; color: #555; margin-top: 8px; }
+
+.report-event-list { width: 100%; border-collapse: collapse; font-size: 13px; }
+.report-event-list th, .report-event-list td { border: 1px solid #333; padding: 6px 8px; }
+.report-event-list th { background: #eee; }
+.report-event-list td.amt { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.report-event-list tr.tot td { font-weight: 700; background: #f4f4f4; }
+
+.audit-block { margin-top: 20px; }
+.audit-row { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 36px; padding-bottom: 8px; border-bottom: 1.5px solid #333; }
+.audit-row .audit-label { flex: 0 0 96px; font-weight: 700; }
+.audit-row .audit-sign { flex: 1; }
+.audit-row .audit-date { flex: 0 0 180px; text-align: right; }
+
 /* 印刷／PDF: アプリのUIを隠して報告書だけ印刷 */
 @media print {
   body { padding: 0 !important; background: #fff !important; }
@@ -263,6 +314,11 @@ body {
   .no-print { display: none !important; }
   .report-body { max-width: none !important; box-shadow: none !important; border-radius: 0 !important; padding: 0 !important; }
   .report-table td.dtl { color: #000; }
+  /* 多ページ：各ページの先頭で改ページ */
+  .report-page { padding: 0; }
+  .report-page + .report-page { page-break-before: always; border-top: none; margin-top: 0; padding-top: 0; }
+  .report-page table, .audit-row { page-break-inside: avoid; }
+  @page { size: A4; margin: 14mm; }
 }
 
 .hidden { display: none !important; }

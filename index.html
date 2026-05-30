@@ -76,6 +76,10 @@
     <!-- 一覧ビュー -->
     <section id="view-list" class="view">
       <h2 class="view-title">取引一覧</h2>
+      <div class="seg" id="listScopeSeg" style="max-width:320px;margin:0 auto 8px">
+        <button type="button" class="seg-btn list-scope active" data-scope="period">この期間</button>
+        <button type="button" class="seg-btn list-scope" data-scope="all">全期間</button>
+      </div>
       <div id="listPeriod" class="list-period"></div>
       <div class="list-summary card">
         <div><span>前年度繰越金</span><strong id="listCarryover">¥0</strong></div>
@@ -106,9 +110,8 @@
         <div class="fee-legend">
           <span><span class="fee-mark done">●</span>参加・集金済</span>
           <span><span class="fee-mark plan">◯</span>参加・未集金</span>
-          <span><span class="fee-mark done rest">●</span>お休み・集金済(500)</span>
-          <span><span class="fee-mark plan rest">◯</span>お休み・未集金(500)</span>
           <span>– =対象外</span>
+          <span style="color:var(--muted)">※お休み月の半額は「支出→部費返金」で返金処理</span>
         </div>
       </div>
 
@@ -116,6 +119,11 @@
         <div class="total-row"><span>済合計（実際に集まった額）</span><strong id="feeDone">¥0</strong></div>
         <div class="total-row"><span>予定合計（本来の額）</span><strong id="feePlan">¥0</strong></div>
         <div class="total-row"><span>未集金</span><strong id="feeUnpaid">¥0</strong></div>
+      </div>
+
+      <div class="card">
+        <h3 class="block-title">納付履歴（日付順）</h3>
+        <div id="feeEventList"></div>
       </div>
     </section>
 
@@ -194,8 +202,16 @@
 
       <form id="settingsForm" class="card">
         <label class="field">
-          <span class="field-label">年度名（Excelのファイル名・見出しに使用）</span>
+          <span class="field-label">チーム名・会名</span>
+          <input type="text" id="setTeam" placeholder="例：チアフル" />
+        </label>
+        <label class="field">
+          <span class="field-label">年度名（報告書の表題・Excelファイル名に使用）</span>
           <input type="text" id="setYear" placeholder="例：2025年度" />
+        </label>
+        <label class="field">
+          <span class="field-label">会計担当者名（報告書に記載）</span>
+          <input type="text" id="setTreasurer" placeholder="例：山田　花子" />
         </label>
         <label class="field">
           <span class="field-label">前年度繰越金（円／この期間の期首残高）</span>
@@ -230,13 +246,23 @@
         </div>
       </div>
 
-      <div class="card danger-zone">
-        <h3 class="block-title">データ管理</h3>
-        <button type="button" class="btn ghost full" id="exportJson">バックアップを書き出す（JSON）</button>
+      <div class="card">
+        <h3 class="block-title">引き継ぎ・バックアップ</h3>
+        <div id="backupNotice" class="integrity card hidden" style="margin:0 0 10px"></div>
+        <p style="font-size:13px;color:var(--muted);margin:0 0 10px">
+          会計の引き継ぎ・機種変更・万一の故障に備えて、定期的にバックアップしてください。
+          ファイル保存時に「Googleドライブ」「iCloud Drive」を選べばクラウドに残せます。<strong>共有Driveフォルダを使うと歴代会計で引き継げます</strong>（手順はREADME参照）。
+        </p>
+        <button type="button" class="btn primary full" id="exportJson">📥 バックアップを書き出す（JSON）</button>
         <label class="btn ghost full file-btn">
-          バックアップを読み込む（JSON）
+          📤 前任のバックアップを読み込む（JSON）
           <input type="file" id="importJson" accept="application/json" hidden />
         </label>
+        <div id="lastBackup" style="font-size:12px;color:var(--muted);text-align:center;margin:8px 0"></div>
+      </div>
+
+      <div class="card danger-zone">
+        <h3 class="block-title">危険：データ操作</h3>
         <button type="button" class="btn danger full" id="resetData">全データを削除</button>
       </div>
     </section>
@@ -268,14 +294,34 @@
     <div id="reportBody" class="report-body"></div>
   </div>
 
+  <!-- まとめて納付 シート -->
+  <div id="bulkPaySheet" class="sheet-backdrop hidden">
+    <div class="sheet">
+      <div class="sheet-title" id="bulkPayTitle">まとめて納付</div>
+      <label class="field">
+        <span class="field-label">開始月</span>
+        <input type="month" id="bulkPayStart" />
+      </label>
+      <label class="field">
+        <span class="field-label">終了月</span>
+        <input type="month" id="bulkPayEnd" />
+      </label>
+      <label class="field">
+        <span class="field-label">納付日</span>
+        <input type="date" id="bulkPayDate" />
+      </label>
+      <div class="period-preview" id="bulkPayAmount">合計：¥0（0ヶ月）</div>
+      <button type="button" class="btn primary full" id="bulkPayConfirm">集金済として登録</button>
+      <button type="button" class="sheet-btn cancel" id="bulkPayCancel">キャンセル</button>
+    </div>
+  </div>
+
   <!-- 部費セルの選択メニュー（アクションシート） -->
   <div id="feeSheet" class="sheet-backdrop hidden">
     <div class="sheet">
       <div class="sheet-title" id="feeSheetTitle">状態を選択</div>
       <button type="button" class="sheet-btn" data-status="done1"><span class="fee-mark done">●</span>参加・集金済（1,000円）</button>
       <button type="button" class="sheet-btn" data-status="plan1"><span class="fee-mark plan">◯</span>参加・未集金（1,000円）</button>
-      <button type="button" class="sheet-btn" data-status="done5"><span class="fee-mark done rest">●</span>お休み・集金済（500円）</button>
-      <button type="button" class="sheet-btn" data-status="plan5"><span class="fee-mark plan rest">◯</span>お休み・未集金（500円）</button>
       <button type="button" class="sheet-btn muted" data-status="">対象外（空白にする）</button>
       <button type="button" class="sheet-btn cancel" data-status="cancel">キャンセル</button>
     </div>

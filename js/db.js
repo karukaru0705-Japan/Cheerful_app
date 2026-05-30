@@ -10,7 +10,7 @@ const DB = (() => {
   const DEFAULT_INCOME_CATS = ['前年度繰越金', '部費', '雑収入', 'ルールブック代', '学校開放', '寄付', 'その他'];
   const DEFAULT_EXPENSE_CATS = [
     'ユニフォーム積立金', '備品代', '総会関係費', '大会参加費', '連盟登録費',
-    '土産代', '交通費', '飲食費', '体育館使用料', '雑費'
+    '土産代', '交通費', '飲食費', '体育館使用料', '部費返金', '雑費'
   ];
 
   function open() {
@@ -58,7 +58,9 @@ const DB = (() => {
     const now = new Date();
     const fy = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1; // 会計年度の開始年
     if (settings.initialized !== true) {
+      await setSetting('teamName', 'チアフル');
       await setSetting('year', `${fy}年度`);
+      await setSetting('treasurerName', '');
       await setSetting('carryover', 0);
       await setSetting('monthlyFee', 1000);
       for (const name of DEFAULT_INCOME_CATS) await addCategory('収入', name, true);
@@ -72,6 +74,23 @@ const DB = (() => {
       await setSetting('periodCustomMonths', 12);
       await setSetting('periodStart', `${fy}-04`);
       await setSetting('periodEnd', `${fy + 1}-03`);
+    }
+    // 「部費返金」カテゴリが無ければ追加（既存ユーザー向け）
+    const existingCats = await getCategories('支出');
+    if (!existingCats.some((c) => c.name === '部費返金')) {
+      await addCategory('支出', '部費返金', true);
+    }
+    // 旧お休み(500)セルを参加(1000)に変換（done5→done1, plan5→plan1）
+    if (settings.feeMigrationV2 !== true) {
+      const all = await getFeeCells();
+      const rw = (await open()).transaction('feeCells', 'readwrite').objectStore('feeCells');
+      for (const c of all) {
+        if (c.status === 'done5' || c.status === 'plan5') {
+          const newStatus = c.status === 'done5' ? 'done1' : 'plan1';
+          await reqP(rw.put({ ...c, status: newStatus }));
+        }
+      }
+      await setSetting('feeMigrationV2', true);
     }
   }
 
@@ -177,20 +196,23 @@ const DB = (() => {
   }
 
   // ---- 部費セル（メンバー×月の状態） ----
-  // status: 'plan1'|'done1'|'plan5'|'done5'（なし=対象外）
-  async function setFeeCell(key, status) {
+  // status: 'plan1'|'done1'（なし=対象外）。paidDate: 'YYYY-MM-DD'（集金済の納付日）
+  async function setFeeCell(key, status, paidDate) {
     const s = await tx('feeCells', 'readwrite');
     if (!status) return reqP(s.delete(key));
-    return reqP(s.put({ key, status }));
+    const row = { key, status };
+    if (paidDate) row.paidDate = paidDate;
+    return reqP(s.put(row));
   }
   async function getFeeCells() {
     const s = await tx('feeCells');
     return reqP(s.getAll());
   }
   async function getFeeCellMap() {
+    // key -> { status, paidDate }
     const all = await getFeeCells();
     const m = {};
-    all.forEach((c) => { m[c.key] = c.status; });
+    all.forEach((c) => { m[c.key] = { status: c.status, paidDate: c.paidDate || null }; });
     return m;
   }
 

@@ -50,7 +50,10 @@
     pendingPhotoUrl: null, // プレビューURL
     removePhoto: false,    // 編集時に既存写真を削除するか
     settings: {},
-    objectUrls: []         // 解放用
+    objectUrls: [],        // 解放用
+    listScope: 'period',   // 取引一覧の表示範囲: 'period' | 'all'
+    feeTarget: null,
+    bulkPayTarget: null
   };
 
   // ---------- 初期化 ----------
@@ -62,6 +65,7 @@
     bindSettings();
     bindSummary();
     bindFee();
+    bindList();
     $('#entryDate').value = todayStr();
     await refreshCategories();
     await refreshHeader();
@@ -256,54 +260,139 @@
   }
 
   // ---------- 取引一覧 ----------
+  // 部費納付イベント（feeCellsをpaidDate単位にまとめた仮想取引）
+  async function buildFeeEvents() {
+    const members = await DB.getMembers();
+    const cells = await DB.getFeeCells();
+    const settings = await DB.getAllSettings();
+    const fee = Number(settings.monthlyFee || 1000);
+    const memberMap = {};
+    members.forEach((m) => { memberMap[m.id] = m.name; });
+    const grouped = {}; // key: memberId + '|' + paidDate
+    cells.forEach((c) => {
+      if (c.status !== 'done1') return;
+      const [mid, ym] = c.key.split('|');
+      if (!memberMap[mid]) return;
+      const dateKey = c.paidDate || '0000-00-00';
+      const k = `${mid}|${dateKey}`;
+      (grouped[k] = grouped[k] || []).push(ym);
+    });
+    const events = [];
+    for (const [k, ymList] of Object.entries(grouped)) {
+      const [mid, dateKey] = k.split('|');
+      ymList.sort();
+      const known = dateKey !== '0000-00-00';
+      const amount = ymList.length * fee;
+      events.push({
+        date: dateKey,
+        type: '収入',
+        category: '部費',
+        amount,
+        desc: formatFeeMonths(memberMap[mid], ymList) + (known ? '' : '（納付日未記録）'),
+        source: 'fee',
+        memberId: mid,
+        ymList,
+        known
+      });
+    }
+    return events;
+  }
+  function formatFeeMonths(name, ymList) {
+    if (ymList.length === 1) return `${name}：${monthLabelShort(ymList[0])}分`;
+    let consecutive = true;
+    for (let i = 1; i < ymList.length; i++) {
+      if (ymAddMonths(ymList[i - 1], 1) !== ymList[i]) { consecutive = false; break; }
+    }
+    if (consecutive) return `${name}：${monthLabelShort(ymList[0])}〜${monthLabelShort(ymList[ymList.length - 1])}分（${ymList.length}ヶ月）`;
+    return `${name}：${ymList.map(monthLabelShort).join('・')}分（${ymList.length}ヶ月）`;
+  }
+  function monthLabelShort(ym) { return `${Number(ym.split('-')[1])}月`; }
+
   async function renderList() {
-    const { carryover, balance, txs, allCount, period } = await computeBalances();
+    const settings = await DB.getAllSettings();
+    const carryover = Number(settings.carryover || 0);
+    const period = getPeriod(settings);
+    const scope = state.listScope || 'period';
+
+    const allTxs = await DB.getAllTransactions();
+    // 部費はグリッド管理なので、入力タブで誤って「部費」カテゴリの取引があっても二重計上を避けて除外
+    const txs = allTxs.filter((t) => !(t.type === '収入' && t.category === '部費'));
+    const feeEvents = await buildFeeEvents();
+    let items = [
+      ...txs.map((t) => ({ ...t, source: 'tx' })),
+      ...feeEvents
+    ];
+    const totalAll = items.length;
+    if (scope === 'period') {
+      items = items.filter((it) => {
+        if (it.source === 'tx') return inPeriod(it.date, period);
+        // 部費イベントは「対象月のいずれかが期間内」なら表示（後日納付・前納に対応）
+        if (it.source === 'fee') return (it.ymList || []).some((ym) => ym >= period.start && ym <= period.end);
+        return false;
+      });
+    }
+    items.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+
+    let run = carryover;
+    const withBalance = items.map((it) => {
+      run += (it.type === '収入' ? it.amount : -it.amount);
+      return { ...it, runningBalance: run };
+    });
+
     $('#listCarryover').textContent = yen(carryover);
-    $('#listEndBalance').textContent = yen(balance);
-    $('#listPeriod').textContent = `期間：${periodLabel(period)}　（該当 ${txs.length} 件${allCount > txs.length ? ` / 全${allCount}件` : ''}）`;
+    $('#listEndBalance').textContent = yen(run);
+    $('#listPeriod').textContent = scope === 'period'
+      ? `期間：${periodLabel(period)}　（${items.length}件${totalAll > items.length ? ` / 全${totalAll}件中` : ''}）`
+      : `全期間（${items.length}件、古い順）`;
 
     const list = $('#txList');
     list.innerHTML = '';
-    if (txs.length === 0) {
+    if (withBalance.length === 0) {
       const empty = $('#txEmpty');
-      empty.textContent = allCount > 0
-        ? 'この期間の取引はありません。期間を変えるか「入力」から追加してください。'
-        : 'まだ取引がありません。「入力」から追加してください。';
+      empty.textContent = totalAll > 0
+        ? 'この期間の取引はありません。「全期間」に切替えるか期間を変えてください。'
+        : 'まだ取引がありません。「入力」または「部費」から追加してください。';
       empty.classList.remove('hidden');
       return;
     }
     $('#txEmpty').classList.add('hidden');
 
-    // 新しい順で表示しつつ、残高は時系列で計算
-    let run = carryover;
-    const withBalance = txs.map((t) => {
-      run += (t.type === '収入' ? t.amount : -t.amount);
-      return { ...t, runningBalance: run };
-    });
-    withBalance.reverse();
-
+    let currentMonth = null;
     for (const t of withBalance) {
+      const ym = t.date.slice(0, 7);
+      if (ym !== currentMonth) {
+        currentMonth = ym;
+        const h = document.createElement('div');
+        h.className = 'tx-month';
+        h.textContent = ym === '0000-00' ? '（納付日未記録）' : `${ym.split('-')[0]}年${Number(ym.split('-')[1])}月`;
+        list.appendChild(h);
+      }
       const el = document.createElement('div');
-      el.className = 'tx-item';
+      el.className = 'tx-item' + (t.source === 'fee' ? ' fee-event' : '');
       const photoIco = t.photoId ? '<span class="tx-photo-ico">📷</span>' : '';
+      const editButtons = t.source === 'tx' ? `
+        <div class="tx-actions">
+          <button data-act="edit" title="編集">✎</button>
+          <button data-act="del" title="削除">🗑</button>
+        </div>` : '';
+      const dateLabel = t.date === '0000-00-00' ? '（日付未記録）' : t.date;
       el.innerHTML = `
         <div class="tx-main">
           <div class="tx-desc">${esc(t.desc || t.category)}</div>
-          <div class="tx-meta"><span class="tx-cat-badge">${esc(t.category)}</span>${t.date} ${photoIco}</div>
+          <div class="tx-meta"><span class="tx-cat-badge">${esc(t.category)}</span>${dateLabel} ${photoIco}</div>
         </div>
         <div class="tx-right">
           <div class="tx-amount ${t.type}">${t.type === '収入' ? '+' : '−'}${yen(t.amount)}</div>
           <div class="tx-balance">残 ${yen(t.runningBalance)}</div>
         </div>
-        <div class="tx-actions">
-          <button data-act="edit" title="編集">✎</button>
-          <button data-act="del" title="削除">🗑</button>
-        </div>`;
-      el.querySelector('[data-act="edit"]').addEventListener('click', () => editTransaction(t.id));
-      el.querySelector('[data-act="del"]').addEventListener('click', () => onDelete(t.id, t.desc));
-      if (t.photoId) {
-        el.querySelector('.tx-main').addEventListener('click', () => showPhoto(t.photoId));
-        el.querySelector('.tx-main').style.cursor = 'zoom-in';
+        ${editButtons}`;
+      if (t.source === 'tx') {
+        el.querySelector('[data-act="edit"]').addEventListener('click', () => editTransaction(t.id));
+        el.querySelector('[data-act="del"]').addEventListener('click', () => onDelete(t.id, t.desc));
+        if (t.photoId) {
+          el.querySelector('.tx-main').addEventListener('click', () => showPhoto(t.photoId));
+          el.querySelector('.tx-main').style.cursor = 'zoom-in';
+        }
       }
       list.appendChild(el);
     }
@@ -355,14 +444,13 @@
     if (!incMap['前年度繰越金']) incMap['前年度繰越金'] = { cat: '前年度繰越金', amount: 0, details: [] };
     incMap['前年度繰越金'].amount += carryover;
 
-    // 部費はグリッド（済合計）で上書き。内訳は「1,000円×Nヶ月＋500円×Mヶ月」
+    // 部費はグリッド（済合計）で上書き。内訳は「1,000円×Nヶ月」
     const fee = await computeFeeTotals();
     if (!incMap['部費']) incMap['部費'] = { cat: '部費', amount: 0, details: [] };
     incMap['部費'].amount = fee.done;
-    const feeParts = [];
-    if (fee.done1Count) feeParts.push(`${fee.fee.toLocaleString('ja-JP')}円×${fee.done1Count}ヶ月`);
-    if (fee.done5Count) feeParts.push(`${fee.half.toLocaleString('ja-JP')}円×${fee.done5Count}ヶ月（お休み）`);
-    incMap['部費'].details = feeParts.length ? [feeParts.join(' ＋ ') + '（集金済）'] : [];
+    incMap['部費'].details = fee.done1Count
+      ? [`${fee.fee.toLocaleString('ja-JP')}円×${fee.done1Count}ヶ月（集金済）`]
+      : [];
 
     const orderedInc = ['前年度繰越金', ...incomeCats.filter((c) => c !== '前年度繰越金'),
       ...Object.keys(incMap).filter((c) => c !== '前年度繰越金' && !incomeCats.includes(c))];
@@ -445,14 +533,17 @@
     $('#reportPrint').addEventListener('click', () => window.print());
   }
 
-  // ---------- 会計報告プレビュー（提出フォーム風） ----------
+  // ---------- 会計報告プレビュー（多ページ） ----------
   async function renderReport() {
     const agg = await aggregate();
     const settings = await DB.getAllSettings();
     const actual = settings.actualBalance;
+    const team = settings.teamName || 'チアフル';
+    const treasurer = settings.treasurerName || '（未設定）';
     const yf = (n) => '¥' + (n || 0).toLocaleString('ja-JP');
     const dtl = (d) => d ? esc(d).replace(/\n/g, '<br>') : '';
 
+    // --- 収支表 ---
     const incN = agg.incomeRows.length;
     const incRows = agg.incomeRows.map((r, i) =>
       `<tr>${i === 0 ? `<td class="vlabel" rowspan="${incN + 1}">収入</td>` : ''}<td>${esc(r.cat)}</td><td class="amt">${yf(r.amount)}</td><td class="dtl">${dtl(r.detail)}</td></tr>`
@@ -461,7 +552,6 @@
     const expRows = agg.expenseRows.map((r, i) =>
       `<tr>${i === 0 ? `<td class="vlabel" rowspan="${expN + 1}">支出</td>` : ''}<td>${esc(r.cat)}</td><td class="amt">${yf(r.amount)}</td><td class="dtl">${dtl(r.detail)}</td></tr>`
     ).join('');
-
     let balanceBlock = `<div class="report-balance">差引残高　${yf(agg.balance)}</div>`;
     if (actual != null && actual !== '') {
       const diff = Number(actual) - agg.balance;
@@ -469,19 +559,118 @@
       balanceBlock += `<div class="report-sub">実際の現金残高 ${yf(Number(actual))}／差額 ${yf(diff)} ${note}</div>`;
     }
 
+    // --- 部費グリッド（読み取り専用） ---
+    const feeT = await computeFeeTotals();
+    const cellMap = feeT.cellMap;
+    const monthHdr = feeT.months.map((ym) => `<th>${Number(ym.split('-')[1])}月</th>`).join('');
+    let feeGridRows = '';
+    feeT.members.forEach((m) => {
+      let cells = '';
+      feeT.months.forEach((ym) => {
+        const cell = cellMap[`${m.id}|${ym}`];
+        const st = cell && cell.status;
+        let inner = '–';
+        if (st === 'done1') inner = '●';
+        else if (st === 'plan1') inner = '◯';
+        cells += `<td>${inner}</td>`;
+      });
+      feeGridRows += `<tr><td class="name-col">${esc(m.name)}</td>${cells}<td class="sub-col">${yf(feeT.memberSub[m.id].done)}</td></tr>`;
+    });
+    const feeGridTable = feeT.members.length === 0
+      ? '<p>（メンバー未登録）</p>'
+      : `<table class="report-fee-grid">
+          <tr><th class="name-col">メンバー</th>${monthHdr}<th>済小計</th></tr>
+          ${feeGridRows}
+          <tr class="tot"><td class="name-col">合計</td><td colspan="${feeT.months.length}">済 ${yf(feeT.done)} ／ 予定 ${yf(feeT.plan)}</td><td class="sub-col">${yf(feeT.done)}</td></tr>
+        </table>
+        <p class="report-fee-legend">●=参加・集金済 ／ ◯=参加・未集金 ／ – =対象外</p>`;
+
+    // --- 納付履歴（時系列） ---
+    const events = (await buildFeeEvents()).sort((a, b) => a.date < b.date ? -1 : 1);
+    const eventListHtml = events.length === 0
+      ? '<p>（納付履歴はまだありません）</p>'
+      : `<table class="report-event-list">
+          <tr><th>納付日</th><th>内容</th><th class="amt">金額</th></tr>
+          ${events.map((e) => `<tr><td>${e.known ? e.date : '日付未記録'}</td><td>${esc(e.desc)}</td><td class="amt">${yf(e.amount)}</td></tr>`).join('')}
+          <tr class="tot"><td colspan="2">納付合計</td><td class="amt">${yf(events.reduce((s, e) => s + e.amount, 0))}</td></tr>
+        </table>`;
+
+    const today = todayStr();
+
     $('#reportBody').innerHTML = `
-      <div class="report-title">チアフル会計報告<br>${esc(agg.year || '')}　${esc(agg.periodText)}</div>
-      <table class="report-table">
-        <tr><th></th><th>摘要</th><th>金額</th><th>内訳</th></tr>
-        ${incRows}
-        <tr class="tot"><td>収入合計</td><td class="amt">${yf(agg.incomeTotal)}</td><td></td></tr>
-      </table>
-      <table class="report-table">
-        <tr><th></th><th>摘要</th><th>金額</th><th>内訳</th></tr>
-        ${expRows}
-        <tr class="tot"><td>支出合計</td><td class="amt">${yf(agg.expenseTotal)}</td><td></td></tr>
-      </table>
-      ${balanceBlock}`;
+      <!-- 表紙 -->
+      <div class="report-page cover-page">
+        <div class="cover-team">${esc(team)}</div>
+        <div class="cover-title">${esc(agg.year || '')}　会計報告書</div>
+        <div class="cover-meta">
+          作成日：${today}<br>
+          会計担当者：${esc(treasurer)}
+        </div>
+      </div>
+
+      <!-- 目次 -->
+      <div class="report-page toc-page">
+        <h2 class="page-title">目次</h2>
+        <ol class="toc-list">
+          <li>収支報告</li>
+          <li>部費納付一覧（メンバー×月）</li>
+          <li>部費納付履歴（日付順）</li>
+          <li>監査確認</li>
+        </ol>
+      </div>
+
+      <!-- 1. 収支報告 -->
+      <div class="report-page">
+        <h2 class="page-title">1. 収支報告</h2>
+        <div class="page-sub">${esc(agg.year || '')}　${esc(agg.periodText)}</div>
+        <table class="report-table">
+          <tr><th></th><th>摘要</th><th>金額</th><th>内訳</th></tr>
+          ${incRows}
+          <tr class="tot"><td>収入合計</td><td class="amt">${yf(agg.incomeTotal)}</td><td></td></tr>
+        </table>
+        <table class="report-table">
+          <tr><th></th><th>摘要</th><th>金額</th><th>内訳</th></tr>
+          ${expRows}
+          <tr class="tot"><td>支出合計</td><td class="amt">${yf(agg.expenseTotal)}</td><td></td></tr>
+        </table>
+        ${balanceBlock}
+      </div>
+
+      <!-- 2. 部費納付一覧 -->
+      <div class="report-page">
+        <h2 class="page-title">2. 部費納付一覧（メンバー×月）</h2>
+        ${feeGridTable}
+      </div>
+
+      <!-- 3. 部費納付履歴 -->
+      <div class="report-page">
+        <h2 class="page-title">3. 部費納付履歴（日付順）</h2>
+        ${eventListHtml}
+      </div>
+
+      <!-- 4. 監査確認 -->
+      <div class="report-page">
+        <h2 class="page-title">4. 監査確認</h2>
+        <p>本会計報告書の内容を確認しました。</p>
+        <div class="audit-block">
+          <div class="audit-row">
+            <span class="audit-label">会計担当者</span>
+            <span class="audit-sign">${esc(treasurer || '　　　　　　　')}　　自署：__________________</span>
+            <span class="audit-date">日付：　　年　月　日</span>
+          </div>
+          <div class="audit-row">
+            <span class="audit-label">監査者①</span>
+            <span class="audit-sign">自署：__________________</span>
+            <span class="audit-date">日付：　　年　月　日</span>
+          </div>
+          <div class="audit-row">
+            <span class="audit-label">監査者②</span>
+            <span class="audit-sign">自署：__________________</span>
+            <span class="audit-date">日付：　　年　月　日</span>
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   // ---------- 部費（メンバー×月グリッド） ----------
@@ -495,36 +684,34 @@
   async function computeFeeTotals() {
     const settings = await DB.getAllSettings();
     const fee = Number(settings.monthlyFee || 1000);
-    const half = Math.round(fee / 2);
     const period = getPeriod(settings);
     const months = monthsInPeriod(period);
     const members = await DB.getMembers();
     const cellMap = await DB.getFeeCellMap();
-    const amt = (st) => (st === 'done1' || st === 'plan1') ? fee : (st === 'done5' || st === 'plan5') ? half : 0;
-    const isDone = (st) => st === 'done1' || st === 'done5';
-    let done = 0, plan = 0, done1Count = 0, done5Count = 0, plan1Count = 0, plan5Count = 0;
+    const amt = (st) => (st === 'done1' || st === 'plan1') ? fee : 0;
+    const isDone = (st) => st === 'done1';
+    let done = 0, plan = 0, done1Count = 0, plan1Count = 0;
     const memberSub = {};
     members.forEach((m) => {
       let sd = 0, sp = 0;
       months.forEach((ym) => {
-        const st = cellMap[`${m.id}|${ym}`];
+        const cell = cellMap[`${m.id}|${ym}`];
+        const st = cell && cell.status;
         const a = amt(st); if (!a) return;
         sp += a; if (isDone(st)) sd += a;
-        if (st === 'done1') done1Count++; else if (st === 'done5') done5Count++;
-        else if (st === 'plan1') plan1Count++; else if (st === 'plan5') plan5Count++;
+        if (st === 'done1') done1Count++;
+        else if (st === 'plan1') plan1Count++;
       });
       memberSub[m.id] = { done: sd, plan: sp };
       done += sd; plan += sp;
     });
-    return { fee, half, period, months, members, cellMap, done, plan, unpaid: plan - done,
-      memberSub, done1Count, done5Count, plan1Count, plan5Count };
+    return { fee, period, months, members, cellMap, done, plan, unpaid: plan - done,
+      memberSub, done1Count, plan1Count };
   }
 
-  function feeCellInner(st, fee, half) {
+  function feeCellInner(st, fee) {
     if (st === 'done1') return `<span class="fee-mark done">●</span><span class="fee-amt">${fee.toLocaleString('ja-JP')}</span>`;
     if (st === 'plan1') return `<span class="fee-mark plan">◯</span><span class="fee-amt">${fee.toLocaleString('ja-JP')}</span>`;
-    if (st === 'done5') return `<span class="fee-mark done rest">●</span><span class="fee-amt">${half.toLocaleString('ja-JP')}休</span>`;
-    if (st === 'plan5') return `<span class="fee-mark plan rest">◯</span><span class="fee-amt">${half.toLocaleString('ja-JP')}休</span>`;
     return `<span class="fee-dash">–</span>`;
   }
 
@@ -534,10 +721,11 @@
     t.members.forEach((m) => {
       let cells = '';
       t.months.forEach((ym) => {
-        const st = t.cellMap[`${m.id}|${ym}`];
-        cells += `<td><div class="fee-cell" data-member="${m.id}" data-ym="${ym}">${feeCellInner(st, t.fee, t.half)}</div></td>`;
+        const cell = t.cellMap[`${m.id}|${ym}`];
+        const st = cell && cell.status;
+        cells += `<td><div class="fee-cell" data-member="${m.id}" data-ym="${ym}">${feeCellInner(st, t.fee)}</div></td>`;
       });
-      html += `<tr><td class="name-col">${esc(m.name)}</td>${cells}<td class="sub-col">${yen(t.memberSub[m.id].done)}</td></tr>`;
+      html += `<tr><td class="name-col">${esc(m.name)}<button class="bulk-pay-btn" data-member="${m.id}" title="まとめて納付">💰</button></td>${cells}<td class="sub-col">${yen(t.memberSub[m.id].done)}</td></tr>`;
     });
     html += `<tr class="fee-total"><td class="name-col">合計</td><td colspan="${t.months.length}">済 ${yen(t.done)} ／ 予定 ${yen(t.plan)}</td><td class="sub-col">${yen(t.done)}</td></tr>`;
     html += `</table>`;
@@ -577,11 +765,35 @@
           openFeeSheet(mid, cell.dataset.ym, member ? member.name : '');
         });
       });
+      wrap.querySelectorAll('.bulk-pay-btn').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const mid = btn.dataset.member;
+          const m = t.members.find((x) => String(x.id) === String(mid));
+          openBulkPaySheet(mid, m ? m.name : '');
+        });
+      });
     }
 
     $('#feeDone').textContent = yen(t.done);
     $('#feePlan').textContent = yen(t.plan);
     $('#feeUnpaid').textContent = yen(t.unpaid);
+
+    // 納付履歴（部費イベントを古い順）
+    const events = (await buildFeeEvents()).sort((a, b) => a.date < b.date ? -1 : 1);
+    const ev = $('#feeEventList');
+    if (events.length === 0) {
+      ev.innerHTML = '<p class="empty-msg" style="padding:8px">納付履歴はまだありません。</p>';
+    } else {
+      ev.innerHTML = events.map((e) => {
+        const date = e.known ? e.date : '日付未記録';
+        return `<div class="fee-event-row${e.known ? '' : ' unknown'}">
+          <span class="ev-date">${date}</span>
+          <span class="ev-desc">${esc(e.desc)}</span>
+          <span class="ev-amount">${yen(e.amount)}</span>
+        </div>`;
+      }).join('');
+    }
   }
 
   function openFeeSheet(memberId, ym, name) {
@@ -590,6 +802,49 @@
     $('#feeSheet').classList.remove('hidden');
   }
   function closeFeeSheet() { $('#feeSheet').classList.add('hidden'); state.feeTarget = null; }
+
+  // ---------- まとめて納付 ----------
+  async function openBulkPaySheet(memberId, name) {
+    const settings = await DB.getAllSettings();
+    const period = getPeriod(settings);
+    state.bulkPayTarget = { memberId, name };
+    $('#bulkPayTitle').textContent = `${name}さん：まとめて納付`;
+    $('#bulkPayStart').value = period.start;
+    $('#bulkPayEnd').value = period.end;
+    $('#bulkPayDate').value = todayStr();
+    updateBulkPayAmount();
+    $('#bulkPaySheet').classList.remove('hidden');
+  }
+  function closeBulkPaySheet() { $('#bulkPaySheet').classList.add('hidden'); state.bulkPayTarget = null; }
+
+  async function updateBulkPayAmount() {
+    const start = $('#bulkPayStart').value;
+    const end = $('#bulkPayEnd').value;
+    const box = $('#bulkPayAmount');
+    if (!start || !end || start > end) { box.textContent = '開始月と終了月を選んでください'; return; }
+    const months = monthsInPeriod({ start, end });
+    const settings = await DB.getAllSettings();
+    const fee = Number(settings.monthlyFee || 1000);
+    const amount = months.length * fee;
+    box.textContent = `合計：${yen(amount)}（${months.length}ヶ月 × ${yen(fee)}）`;
+  }
+
+  async function confirmBulkPay() {
+    const t = state.bulkPayTarget;
+    if (!t) return;
+    const start = $('#bulkPayStart').value;
+    const end = $('#bulkPayEnd').value;
+    const paidDate = $('#bulkPayDate').value || todayStr();
+    if (!start || !end || start > end) { toast('期間を正しく指定してください'); return; }
+    const months = monthsInPeriod({ start, end });
+    for (const ym of months) {
+      await DB.setFeeCell(`${t.memberId}|${ym}`, 'done1', paidDate);
+    }
+    closeBulkPaySheet();
+    await renderFee();
+    await refreshHeader();
+    toast(`${months.length}ヶ月分を集金済として登録しました`);
+  }
 
   async function addMemberHandler() {
     const name = $('#newMember').value.trim();
@@ -604,15 +859,31 @@
     toast('メンバーを追加（全月を参加・未集金にしました）');
   }
 
+  function bindList() {
+    $$('.list-scope').forEach((b) => b.addEventListener('click', () => {
+      $$('.list-scope').forEach((x) => x.classList.remove('active'));
+      b.classList.add('active');
+      state.listScope = b.dataset.scope;
+      renderList();
+    }));
+  }
+
   function bindFee() {
     $('#addMember').addEventListener('click', addMemberHandler);
     $('#newMember').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addMemberHandler(); } });
     $('#feeSheet').addEventListener('click', (e) => { if (e.target.id === 'feeSheet') closeFeeSheet(); });
+    // まとめて納付
+    $('#bulkPaySheet').addEventListener('click', (e) => { if (e.target.id === 'bulkPaySheet') closeBulkPaySheet(); });
+    $('#bulkPayCancel').addEventListener('click', closeBulkPaySheet);
+    $('#bulkPayConfirm').addEventListener('click', confirmBulkPay);
+    ['#bulkPayStart', '#bulkPayEnd', '#bulkPayDate'].forEach((sel) => $(sel).addEventListener('input', updateBulkPayAmount));
     $$('#feeSheet .sheet-btn').forEach((btn) => btn.addEventListener('click', async () => {
       const status = btn.dataset.status;
       if (status === 'cancel') { closeFeeSheet(); return; }
       if (state.feeTarget) {
-        await DB.setFeeCell(`${state.feeTarget.memberId}|${state.feeTarget.ym}`, status);
+        // 集金済にする時は今日の日付を納付日として記録（後でまとめて納付UIで上書き可）
+        const paidDate = status === 'done1' ? todayStr() : null;
+        await DB.setFeeCell(`${state.feeTarget.memberId}|${state.feeTarget.ym}`, status, paidDate);
         closeFeeSheet();
         await renderFee();
         await refreshHeader();
@@ -624,7 +895,9 @@
   function bindSettings() {
     $('#settingsForm').addEventListener('submit', async (e) => {
       e.preventDefault();
+      await DB.setSetting('teamName', $('#setTeam').value.trim() || 'チアフル');
       await DB.setSetting('year', $('#setYear').value.trim());
+      await DB.setSetting('treasurerName', $('#setTreasurer').value.trim());
       await DB.setSetting('carryover', parseInt($('#setCarryover').value, 10) || 0);
       await DB.setSetting('monthlyFee', parseInt($('#setFee').value, 10) || 1000);
       toast('設定を保存しました');
@@ -658,11 +931,43 @@
 
   async function renderSettings() {
     const s = await DB.getAllSettings();
+    $('#setTeam').value = s.teamName || 'チアフル';
     $('#setYear').value = s.year || '';
+    $('#setTreasurer').value = s.treasurerName || '';
     $('#setCarryover').value = s.carryover != null ? s.carryover : '';
     $('#setFee').value = s.monthlyFee != null ? s.monthlyFee : 1000;
     renderPeriodFields(s);
     await renderCatLists();
+    renderBackupStatus(s);
+  }
+
+  function renderBackupStatus(s) {
+    const lastEl = $('#lastBackup');
+    const notice = $('#backupNotice');
+    notice.classList.add('hidden');
+    if (s.lastBackupDate) {
+      const last = new Date(s.lastBackupDate + 'T00:00');
+      const days = Math.floor((Date.now() - last.getTime()) / 86400000);
+      lastEl.textContent = `最終バックアップ：${s.lastBackupDate}（${days}日前）`;
+    } else {
+      lastEl.textContent = '最終バックアップ：未取得';
+    }
+    // 年度末リマインダー：期間が終了済み（または残り30日以内）でバックアップが古い場合
+    const period = getPeriod(s);
+    const today = todayStr();
+    const periodEndDate = period.end + '-28';
+    const lastBk = s.lastBackupDate || '0000-00-00';
+    let warn = null;
+    if (today > period.end + '-31') {
+      if (lastBk < period.end + '-01') warn = `🔔 期間が終了しています（${periodLabel(period)}）。年度のバックアップを取り、共有Driveに保存しましょう。`;
+    } else if (today >= period.end + '-01') {
+      warn = `📅 期間の最終月です（〜${period.end}）。年度末バックアップの準備をお忘れなく。`;
+    }
+    if (warn) {
+      notice.className = 'integrity warn';
+      notice.innerHTML = `<div class="ico">⚠️</div><div style="flex:1;font-weight:600">${esc(warn)}</div>`;
+      notice.classList.remove('hidden');
+    }
   }
 
   // ---------- 集計期間UI ----------
@@ -760,7 +1065,9 @@
     a.download = `チアフル会計バックアップ_${(data.settings.year || '').replace(/[\/\\:*?"<>|]/g, '_')}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    toast('バックアップを書き出しました');
+    await DB.setSetting('lastBackupDate', todayStr());
+    toast('バックアップを書き出しました（共有Driveに保存もご検討ください）');
+    if ($('#view-settings').classList.contains('active')) renderSettings();
   }
 
   async function importBackup(e) {
