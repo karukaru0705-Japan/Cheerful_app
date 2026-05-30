@@ -149,6 +149,20 @@ body {
 
 .empty-msg { text-align: center; color: var(--muted); padding: 30px 10px; }
 
+/* テーブル表示モード */
+.tx-table-wrap { overflow-x: auto; background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+.tx-table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 560px; }
+.tx-table th, .tx-table td { border: 1px solid var(--border); padding: 6px 6px; text-align: left; vertical-align: top; }
+.tx-table th { background: #f0f4f3; font-weight: 700; font-size: 11px; white-space: nowrap; position: sticky; top: 0; }
+.tx-table td.amt { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 600; }
+.tx-table td.bal { text-align: right; white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tx-table td.type-収入 { color: var(--income); font-weight: 700; }
+.tx-table td.type-支出 { color: var(--expense); font-weight: 700; }
+.tx-table tr.fee td { background: rgba(37, 99, 235, .04); }
+.tx-table tr.auto td { background: rgba(245, 158, 11, .07); color: #92400e; font-style: italic; }
+.tx-table .row-del { background: none; border: none; color: var(--danger); cursor: pointer; font-size: 14px; padding: 2px 6px; }
+.tx-table .row-del:disabled { color: #d1d5db; cursor: not-allowed; }
+
 /* 集計テーブル */
 .block-title { font-size: 15px; margin: 0 0 10px; padding-left: 8px; border-left: 4px solid var(--primary); }
 .block-title.income { border-color: var(--income); }
@@ -249,6 +263,8 @@ body {
   width: 24px; height: 24px; cursor: pointer; font-size: 12px; padding: 0; vertical-align: middle;
 }
 .bulk-pay-btn:active { background: var(--primary); color: #fff; }
+.retire-btn { background: #fef3c7; color: #92400e; border: 1px solid #fbbf24; border-radius: 6px; padding: 2px 6px; font-size: 11px; cursor: pointer; margin-left: 4px; }
+.retire-btn:hover { background: #fde68a; }
 
 .fee-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; font-size: 11px; color: var(--muted); }
 .fee-legend span { display: inline-flex; align-items: center; gap: 3px; }

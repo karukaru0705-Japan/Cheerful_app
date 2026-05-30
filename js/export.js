@@ -37,6 +37,17 @@ const ExcelExport = (() => {
     wsTotal['!cols'] = [{ wch: 6 }, { wch: 18 }, { wch: 12 }, { wch: 40 }];
     XLSX.utils.book_append_sheet(wb, wsTotal, '合計');
 
+    // --- 全取引シート（古い順、残高付き）---
+    if (agg.allItems && Array.isArray(agg.allItems)) {
+      const allAOA = [['日付', '種別', 'カテゴリ', '内容', '金額', '残高']];
+      agg.allItems.forEach((it) => {
+        allAOA.push([it.date || '', it.type || '', it.category || '', it.desc || '', it.amount || 0, it.runningBalance != null ? it.runningBalance : '']);
+      });
+      const wsAll = XLSX.utils.aoa_to_sheet(allAOA);
+      wsAll['!cols'] = [{ wch: 12 }, { wch: 6 }, { wch: 14 }, { wch: 32 }, { wch: 12 }, { wch: 12 }];
+      XLSX.utils.book_append_sheet(wb, wsAll, '全取引');
+    }
+
     return wb;
   }
 

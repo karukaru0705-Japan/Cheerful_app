@@ -52,11 +52,13 @@
     settings: {},
     objectUrls: [],        // 解放用
     listScope: 'period',   // 取引一覧の表示範囲: 'period' | 'all'
+    listView: 'cards',     // 取引一覧の表示形式: 'cards' | 'table'
     feeTarget: null,
     bulkPayTarget: null,
     dragMode: false,
     dragActive: false,
-    dragSet: null
+    dragSet: null,
+    retireTarget: null
   };
 
   // ---------- 初期化 ----------
@@ -325,7 +327,6 @@
     const scope = state.listScope || 'period';
 
     const allTxs = await DB.getAllTransactions();
-    // 部費はグリッド管理なので、入力タブで誤って「部費」カテゴリの取引があっても二重計上を避けて除外
     const txs = allTxs.filter((t) => !(t.type === '収入' && t.category === '部費'));
     const feeEvents = await buildFeeEvents();
     let items = [
@@ -336,10 +337,22 @@
     if (scope === 'period') {
       items = items.filter((it) => {
         if (it.source === 'tx') return inPeriod(it.date, period);
-        // 部費イベントは「対象月のいずれかが期間内」なら表示（後日納付・前納に対応）
         if (it.source === 'fee') return (it.ymList || []).some((ym) => ym >= period.start && ym <= period.end);
         return false;
       });
+      // ユニフォーム積立金（自動）を期間末に追加
+      const feeT = await computeFeeTotals();
+      const unifondPer = Number(settings.unifondPerMonth || 0);
+      if (unifondPer > 0 && feeT.done1Count > 0) {
+        const [py, pm] = period.end.split('-').map(Number);
+        const lastDay = new Date(py, pm, 0).getDate();
+        items.push({
+          date: `${period.end}-${String(lastDay).padStart(2, '0')}`,
+          type: '支出', category: 'ユニフォーム積立金',
+          desc: `${unifondPer}円×${feeT.done1Count}ヶ月（部費から自動積立）`,
+          amount: unifondPer * feeT.done1Count, source: 'auto'
+        });
+      }
     }
     items.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
 
@@ -366,6 +379,8 @@
       return;
     }
     $('#txEmpty').classList.add('hidden');
+
+    if (state.listView === 'table') { renderListTable(list, withBalance); return; }
 
     let currentMonth = null;
     for (const t of withBalance) {
@@ -405,6 +420,56 @@
         }
       }
       list.appendChild(el);
+    }
+  }
+
+  function renderListTable(container, withBalance) {
+    const rows = withBalance.map((t) => {
+      const dateLabel = t.date === '0000-00-00' ? '未記録' : t.date;
+      const sign = t.type === '収入' ? '+' : '−';
+      const cls = t.source === 'fee' ? 'fee' : (t.source === 'auto' ? 'auto' : '');
+      const delBtn = t.source === 'auto'
+        ? `<button class="row-del" disabled title="自動計上（設定で変更）">⚙</button>`
+        : `<button class="row-del" data-src="${t.source}" data-id="${t.id || ''}" data-mem="${t.memberId || ''}" data-yms="${(t.ymList || []).join(',')}" title="削除">🗑</button>`;
+      return `<tr class="${cls}">
+        <td>${esc(dateLabel)}</td>
+        <td class="type-${t.type}">${t.type}</td>
+        <td>${esc(t.category)}</td>
+        <td>${esc(t.desc || '')}</td>
+        <td class="amt type-${t.type}">${sign}${yen(t.amount)}</td>
+        <td class="bal">${yen(t.runningBalance)}</td>
+        <td>${delBtn}</td>
+      </tr>`;
+    }).join('');
+    container.innerHTML = `<div class="tx-table-wrap"><table class="tx-table">
+      <thead><tr><th>日付</th><th>種別</th><th>カテゴリ</th><th>内容</th><th>金額</th><th>残高</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+    container.querySelectorAll('.row-del').forEach((btn) => {
+      btn.addEventListener('click', () => onTableRowDelete(btn));
+    });
+  }
+
+  async function onTableRowDelete(btn) {
+    const src = btn.dataset.src;
+    if (src === 'tx') {
+      const id = parseInt(btn.dataset.id, 10);
+      const t = await DB.getTransaction(id);
+      if (!t) return;
+      if (!confirm(`「${t.desc || t.category}」を削除しますか？`)) return;
+      await DB.deleteTransaction(id);
+      toast('削除しました');
+      await refreshHeader();
+      await renderList();
+    } else if (src === 'fee') {
+      const mem = btn.dataset.mem;
+      const yms = (btn.dataset.yms || '').split(',').filter(Boolean);
+      if (yms.length === 0) return;
+      if (!confirm(`この部費納付（${yms.length}ヶ月分）を取り消します。\n該当月は「参加・未集金」に戻ります。\n（退部させる場合はメンバー行の「退部」ボタンをお使いください）`)) return;
+      for (const ym of yms) await DB.setFeeCell(`${mem}|${ym}`, 'plan1');
+      toast(`${yms.length}ヶ月を未集金に戻しました`);
+      await refreshHeader();
+      await renderList();
     }
   }
 
@@ -480,7 +545,31 @@
     const incomeTotal = incomeRows.reduce((s, r) => s + r.amount, 0);
     const expenseTotal = expenseRows.reduce((s, r) => s + r.amount, 0);
 
-    return { year: settings.year || '', periodText: periodLabel(period), carryover, incomeRows, expenseRows, incomeTotal, expenseTotal, balance: incomeTotal - expenseTotal };
+    // 全取引リスト（古い順・残高付き）
+    const feeEvents = await buildFeeEvents();
+    const itemsAll = [
+      ...txs.map((t) => ({ date: t.date, type: t.type, category: t.category, desc: t.desc || '', amount: t.amount, source: 'tx', id: t.id })),
+      ...feeEvents.filter((e) => (e.ymList || []).some((ym) => ym >= period.start && ym <= period.end))
+        .map((e) => ({ date: e.date, type: e.type, category: e.category, desc: e.desc, amount: e.amount, source: 'fee', memberId: e.memberId, ymList: e.ymList }))
+    ];
+    if (unifondPer > 0 && fee.done1Count > 0) {
+      const [py, pm] = period.end.split('-').map(Number);
+      const lastDay = new Date(py, pm, 0).getDate();
+      itemsAll.push({
+        date: `${period.end}-${String(lastDay).padStart(2, '0')}`,
+        type: '支出', category: 'ユニフォーム積立金',
+        desc: `${unifondPer}円×${fee.done1Count}ヶ月（部費から自動積立）`,
+        amount: unifondPer * fee.done1Count, source: 'auto'
+      });
+    }
+    itemsAll.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+    let run = carryover;
+    const allItems = itemsAll.map((it) => {
+      run += (it.type === '収入' ? it.amount : -it.amount);
+      return { ...it, runningBalance: run };
+    });
+
+    return { year: settings.year || '', periodText: periodLabel(period), carryover, incomeRows, expenseRows, incomeTotal, expenseTotal, balance: incomeTotal - expenseTotal, allItems };
   }
 
   async function renderSummary() {
@@ -765,13 +854,14 @@
     ul.innerHTML = '';
     t.members.forEach((m) => {
       const li = document.createElement('li');
-      li.innerHTML = `<span>${esc(m.name)}</span><button title="削除">✕</button>`;
-      li.querySelector('button').addEventListener('click', async () => {
-        if (!confirm(`メンバー「${m.name}」を削除しますか？（このメンバーの部費入力も消えます）`)) return;
+      li.innerHTML = `<span>${esc(m.name)}</span><button class="retire-btn" data-id="${m.id}" title="退部処理">退部</button><button data-act="delMember" title="完全削除">✕</button>`;
+      li.querySelector('.retire-btn').addEventListener('click', () => openRetireSheet(m.id, m.name));
+      li.querySelector('[data-act="delMember"]').addEventListener('click', async () => {
+        if (!confirm(`メンバー「${m.name}」を完全削除しますか？\n（退部処理ではなく、この人の記録を全て消します。年度途中の退部は「退部」ボタンを使ってください）`)) return;
         await DB.deleteMember(m.id);
         await renderFee();
         await refreshHeader();
-        toast('メンバーを削除しました');
+        toast('メンバーを完全削除しました');
       });
       ul.appendChild(li);
     });
@@ -871,6 +961,71 @@
   }
   function closeBulkPaySheet() { $('#bulkPaySheet').classList.add('hidden'); state.bulkPayTarget = null; }
 
+  // ---------- 退部処理 ----------
+  async function openRetireSheet(memberId, name) {
+    state.retireTarget = { memberId, name };
+    const settings = await DB.getAllSettings();
+    const period = getPeriod(settings);
+    $('#retireTitle').textContent = `${name}さん：退部処理`;
+    $('#retireMonth').value = period.end;
+    await updateRetirePreview();
+    $('#retireSheet').classList.remove('hidden');
+  }
+  function closeRetireSheet() { $('#retireSheet').classList.add('hidden'); state.retireTarget = null; }
+
+  async function updateRetirePreview() {
+    const t = state.retireTarget;
+    if (!t) return;
+    const ym = $('#retireMonth').value;
+    if (!ym) { $('#retirePreview').textContent = '退部年月を選択してください'; return; }
+    const cells = await DB.getFeeCells();
+    const affected = cells.filter((c) => c.key.startsWith(t.memberId + '|') && c.key.split('|')[1] >= ym);
+    const doneCount = affected.filter((c) => c.status === 'done1').length;
+    const settings = await DB.getAllSettings();
+    const fee = Number(settings.monthlyFee || 1000);
+    const refund = doneCount * fee;
+    $('#retirePreview').innerHTML = `${ym}以降の影響：<strong>${affected.length}ヶ月</strong>を対象外に変更<br>うち集金済 <strong>${doneCount}ヶ月</strong>（返金額 <strong>${yen(refund)}</strong>）`;
+  }
+
+  async function confirmRetire() {
+    const t = state.retireTarget;
+    if (!t) return;
+    const ym = $('#retireMonth').value;
+    if (!ym) { toast('退部年月を選んでください'); return; }
+    const cells = await DB.getFeeCells();
+    const affected = cells.filter((c) => c.key.startsWith(t.memberId + '|') && c.key.split('|')[1] >= ym);
+    if (affected.length === 0) {
+      if (!confirm('対象月のセルがありません。それでも退部処理を実行しますか？（記録は変わりません）')) return;
+    }
+    const doneCount = affected.filter((c) => c.status === 'done1').length;
+    const settings = await DB.getAllSettings();
+    const fee = Number(settings.monthlyFee || 1000);
+    const refund = doneCount * fee;
+    let recordRefund = false;
+    if (refund > 0) {
+      recordRefund = confirm(`集金済 ${doneCount}ヶ月分（${yen(refund)}）を「部費返金」支出として自動記録しますか？\nOK：自動記録 ／ キャンセル：手動で別途入力`);
+    }
+    for (const c of affected) await DB.setFeeCell(c.key, '');
+    if (recordRefund && refund > 0) {
+      const ymList = affected.map((c) => c.key.split('|')[1]).sort();
+      const startM = Number(ymList[0].split('-')[1]);
+      const endM = Number(ymList[ymList.length - 1].split('-')[1]);
+      // 返金日は退部月の1日とする（集計期間内に確実に入るように）
+      const refundDate = `${ym}-01`;
+      await DB.addTransaction({
+        date: refundDate,
+        type: '支出', category: '部費返金',
+        amount: refund,
+        desc: `${t.name}さん退部：部費返金（${startM}月〜${endM}月分）`,
+        note: ''
+      });
+    }
+    closeRetireSheet();
+    await renderFee();
+    await refreshHeader();
+    toast(`${t.name}さんを退部処理しました${recordRefund ? '（返金も自動記録）' : ''}`);
+  }
+
   async function updateBulkPayAmount() {
     const start = $('#bulkPayStart').value;
     const end = $('#bulkPayEnd').value;
@@ -923,6 +1078,12 @@
       state.listScope = b.dataset.scope;
       renderList();
     }));
+    $('#toggleListView').addEventListener('click', () => {
+      state.listView = state.listView === 'table' ? 'cards' : 'table';
+      $('#toggleListView').textContent = state.listView === 'table' ? '📋 カード' : '📊 表';
+      $('#toggleListView').classList.toggle('on', state.listView === 'table');
+      renderList();
+    });
     $('#openGallery').addEventListener('click', async () => {
       await renderGallery();
       $('#galleryModal').classList.remove('hidden');
@@ -998,6 +1159,11 @@
     $('#bulkPayCancel').addEventListener('click', closeBulkPaySheet);
     $('#bulkPayConfirm').addEventListener('click', confirmBulkPay);
     ['#bulkPayStart', '#bulkPayEnd', '#bulkPayDate'].forEach((sel) => $(sel).addEventListener('input', updateBulkPayAmount));
+    // 退部処理
+    $('#retireSheet').addEventListener('click', (e) => { if (e.target.id === 'retireSheet') closeRetireSheet(); });
+    $('#retireCancel').addEventListener('click', closeRetireSheet);
+    $('#retireConfirm').addEventListener('click', confirmRetire);
+    $('#retireMonth').addEventListener('input', updateRetirePreview);
     // トップの一括入力／ドラッグモード
     $('#openBulkAll').addEventListener('click', openBulkAll);
     $('#dragModeToggle').addEventListener('click', toggleDragMode);

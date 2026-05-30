@@ -88,6 +88,7 @@
           <button type="button" class="seg-btn list-scope active" data-scope="period">この期間</button>
           <button type="button" class="seg-btn list-scope" data-scope="all">全期間</button>
         </div>
+        <button type="button" class="btn ghost small" id="toggleListView">📊 表</button>
         <button type="button" class="btn ghost small" id="openGallery">📷 領収書</button>
       </div>
       <div id="listPeriod" class="list-period"></div>
@@ -322,6 +323,20 @@
       <button type="button" class="btn primary" id="reportPrint">印刷／PDF保存</button>
     </div>
     <div id="reportBody" class="report-body"></div>
+  </div>
+
+  <!-- 退部処理 シート -->
+  <div id="retireSheet" class="sheet-backdrop hidden">
+    <div class="sheet">
+      <div class="sheet-title" id="retireTitle">退部処理</div>
+      <label class="field">
+        <span class="field-label">退部年月（この月以降は対象外になります）</span>
+        <input type="month" id="retireMonth" />
+      </label>
+      <div class="period-preview" id="retirePreview">—</div>
+      <button type="button" class="btn primary full" id="retireConfirm">退部を確定する</button>
+      <button type="button" class="sheet-btn cancel" id="retireCancel">キャンセル</button>
+    </div>
   </div>
 
   <!-- まとめて納付 シート -->
