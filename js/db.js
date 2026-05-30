@@ -294,6 +294,34 @@ const DB = (() => {
     });
   }
 
+  // ---- スナップショット（Undo用、写真は除く軽量版） ----
+  async function snapshot() {
+    const settings = await getAllSettings();
+    const categories = await getCategories();
+    const transactions = await getAllTransactions();
+    const members = await getMembers();
+    const feeCells = await getFeeCells();
+    return { settings, categories, transactions, members, feeCells };
+  }
+  async function restoreSnapshot(s) {
+    const db = await open();
+    await new Promise((res, rej) => {
+      const t = db.transaction(['transactions', 'categories', 'settings', 'members', 'feeCells'], 'readwrite');
+      t.objectStore('transactions').clear();
+      t.objectStore('categories').clear();
+      t.objectStore('settings').clear();
+      t.objectStore('members').clear();
+      t.objectStore('feeCells').clear();
+      t.oncomplete = () => res();
+      t.onerror = () => rej(t.error);
+    });
+    if (s.settings) for (const [k, v] of Object.entries(s.settings)) await setSetting(k, v);
+    if (s.categories) { const st = await tx('categories', 'readwrite'); for (const c of s.categories) await reqP(st.add(c)); }
+    if (s.members) { const st = await tx('members', 'readwrite'); for (const m of s.members) await reqP(st.add(m)); }
+    if (s.feeCells) { const st = await tx('feeCells', 'readwrite'); for (const c of s.feeCells) await reqP(st.put(c)); }
+    if (s.transactions) { const st = await tx('transactions', 'readwrite'); for (const r of s.transactions) await reqP(st.add(r)); }
+  }
+
   // ---- ユーティリティ ----
   function blobToDataURL(blob) {
     return new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob); });
@@ -309,6 +337,7 @@ const DB = (() => {
     addPhoto, getPhoto, deletePhoto,
     addMember, getMembers, updateMember, deleteMember,
     setFeeCell, getFeeCells, getFeeCellMap,
+    snapshot, restoreSnapshot,
     exportAll, importAll, clearAll, blobToDataURL,
     DEFAULT_INCOME_CATS, DEFAULT_EXPENSE_CATS
   };

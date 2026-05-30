@@ -58,8 +58,10 @@
     dragMode: false,
     dragActive: false,
     dragSet: null,
-    retireTarget: null
+    retireTarget: null,
+    undoStack: []
   };
+  const UNDO_LIMIT = 10;
 
   // ---------- 初期化 ----------
   async function boot() {
@@ -71,6 +73,8 @@
     bindSummary();
     bindFee();
     bindList();
+    $('#undoBtn').addEventListener('click', undoLast);
+    updateUndoButton();
     $('#entryDate').value = todayStr();
     await refreshCategories();
     await refreshHeader();
@@ -195,14 +199,15 @@
     }
     if (photoId) data.photoId = photoId;
 
+    const label = state.editingId ? '取引の更新' : '取引の追加';
+    await pushUndoSnapshot(label);
     if (state.editingId) {
       data.id = state.editingId;
       await DB.updateTransaction(data);
-      toast('更新しました');
     } else {
       await DB.addTransaction(data);
-      toast('追加しました');
     }
+    toastUndo(state.editingId ? '取引を更新しました' : '取引を追加しました');
     resetEntryForm();
     await refreshHeader();
     await renderList();
@@ -457,8 +462,9 @@
       const t = await DB.getTransaction(id);
       if (!t) return;
       if (!confirm(`「${t.desc || t.category}」を削除しますか？`)) return;
+      await pushUndoSnapshot('取引の削除');
       await DB.deleteTransaction(id);
-      toast('削除しました');
+      toastUndo('削除しました');
       await refreshHeader();
       await renderList();
     } else if (src === 'fee') {
@@ -466,8 +472,9 @@
       const yms = (btn.dataset.yms || '').split(',').filter(Boolean);
       if (yms.length === 0) return;
       if (!confirm(`この部費納付（${yms.length}ヶ月分）を取り消します。\n該当月は「参加・未集金」に戻ります。\n（退部させる場合はメンバー行の「退部」ボタンをお使いください）`)) return;
+      await pushUndoSnapshot('部費イベントの取消');
       for (const ym of yms) await DB.setFeeCell(`${mem}|${ym}`, 'plan1');
-      toast(`${yms.length}ヶ月を未集金に戻しました`);
+      toastUndo(`${yms.length}ヶ月を未集金に戻しました`);
       await refreshHeader();
       await renderList();
     }
@@ -475,8 +482,9 @@
 
   async function onDelete(id, desc) {
     if (!confirm(`「${desc || 'この取引'}」を削除しますか？`)) return;
+    await pushUndoSnapshot('取引の削除');
     await DB.deleteTransaction(id);
-    toast('削除しました');
+    toastUndo('削除しました');
     await refreshHeader();
     await renderList();
   }
@@ -858,10 +866,11 @@
       li.querySelector('.retire-btn').addEventListener('click', () => openRetireSheet(m.id, m.name));
       li.querySelector('[data-act="delMember"]').addEventListener('click', async () => {
         if (!confirm(`メンバー「${m.name}」を完全削除しますか？\n（退部処理ではなく、この人の記録を全て消します。年度途中の退部は「退部」ボタンを使ってください）`)) return;
+        await pushUndoSnapshot(`メンバー完全削除（${m.name}）`);
         await DB.deleteMember(m.id);
         await renderFee();
         await refreshHeader();
-        toast('メンバーを完全削除しました');
+        toastUndo('メンバーを完全削除しました');
       });
       ul.appendChild(li);
     });
@@ -1005,6 +1014,7 @@
     if (refund > 0) {
       recordRefund = confirm(`集金済 ${doneCount}ヶ月分（${yen(refund)}）を「部費返金」支出として自動記録しますか？\nOK：自動記録 ／ キャンセル：手動で別途入力`);
     }
+    await pushUndoSnapshot(`退部処理（${t.name}）`);
     for (const c of affected) await DB.setFeeCell(c.key, '');
     if (recordRefund && refund > 0) {
       const ymList = affected.map((c) => c.key.split('|')[1]).sort();
@@ -1023,7 +1033,7 @@
     closeRetireSheet();
     await renderFee();
     await refreshHeader();
-    toast(`${t.name}さんを退部処理しました${recordRefund ? '（返金も自動記録）' : ''}`);
+    toastUndo(`${t.name}さんを退部処理しました${recordRefund ? '（返金も自動記録）' : ''}`);
   }
 
   async function updateBulkPayAmount() {
@@ -1049,26 +1059,27 @@
     const paidDate = $('#bulkPayDate').value || todayStr();
     if (!start || !end || start > end) { toast('期間を正しく指定してください'); return; }
     const months = monthsInPeriod({ start, end });
+    await pushUndoSnapshot(`まとめて納付（${months.length}ヶ月）`);
     for (const ym of months) {
       await DB.setFeeCell(`${memberId}|${ym}`, 'done1', paidDate);
     }
     closeBulkPaySheet();
     await renderFee();
     await refreshHeader();
-    toast(`${months.length}ヶ月分を集金済として登録しました`);
+    toastUndo(`${months.length}ヶ月分を集金済として登録しました`);
   }
 
   async function addMemberHandler() {
     const name = $('#newMember').value.trim();
     if (!name) return;
+    await pushUndoSnapshot(`メンバー追加（${name}）`);
     const id = await DB.addMember(name);
-    // 期間の全月を「参加・未集金」で初期セット
     const months = monthsInPeriod(getPeriod(await DB.getAllSettings()));
     for (const ym of months) await DB.setFeeCell(`${id}|${ym}`, 'plan1');
     $('#newMember').value = '';
     await renderFee();
     await refreshHeader();
-    toast('メンバーを追加（全月を参加・未集金にしました）');
+    toastUndo('メンバーを追加しました');
   }
 
   function bindList() {
@@ -1140,12 +1151,12 @@
     const toApply = Array.from(state.dragSet || []);
     state.dragSet = new Set();
     if (toApply.length > 0) {
+      await pushUndoSnapshot(`ドラッグで集金済化（${toApply.length}セル）`);
       for (const key of toApply) await DB.setFeeCell(key, 'done1', date);
       await renderFee();
       await refreshHeader();
-      toast(`${toApply.length}セルを集金済にしました`);
+      toastUndo(`${toApply.length}セルを集金済にしました`);
     } else {
-      // 何もマークされてない時はハイライトだけ消す
       $$('.fee-cell.dragging-over').forEach((c) => c.classList.remove('dragging-over'));
     }
   }
@@ -1198,12 +1209,13 @@
       const status = btn.dataset.status;
       if (status === 'cancel') { closeFeeSheet(); return; }
       if (state.feeTarget) {
-        // 集金済にする時は今日の日付を納付日として記録（後でまとめて納付UIで上書き可）
+        await pushUndoSnapshot('部費セル変更');
         const paidDate = status === 'done1' ? todayStr() : null;
         await DB.setFeeCell(`${state.feeTarget.memberId}|${state.feeTarget.ym}`, status, paidDate);
         closeFeeSheet();
         await renderFee();
         await refreshHeader();
+        toastUndo('部費セルを更新しました');
       }
     }));
   }
@@ -1392,17 +1404,18 @@
   async function importBackup(e) {
     const file = e.target.files[0];
     if (!file) return;
-    if (!confirm('現在のデータを上書きして読み込みます。よろしいですか？')) { e.target.value = ''; return; }
+    if (!confirm('現在のデータを上書きして読み込みます。よろしいですか？\n（直後なら⮌「元に戻す」で復元できます）')) { e.target.value = ''; return; }
     try {
       const text = await file.text();
       const data = JSON.parse(text);
+      await pushUndoSnapshot('バックアップ読み込み');
       await DB.importAll(data);
       state.settings = await DB.getAllSettings();
       await refreshCategories();
       await refreshHeader();
       await renderList();
       await renderSettings();
-      toast('読み込みました');
+      toastUndo('読み込みました');
     } catch (err) {
       console.error(err);
       toast('読み込みに失敗しました');
@@ -1411,8 +1424,9 @@
   }
 
   async function resetData() {
-    if (!confirm('本当に全データを削除しますか？元に戻せません。')) return;
+    if (!confirm('本当に全データを削除しますか？\n（直後なら⮌の「元に戻す」で復元可能ですが、ブラウザを閉じると確実に戻せません）')) return;
     if (!confirm('最終確認：すべての取引・設定が消えます。よろしいですか？')) return;
+    await pushUndoSnapshot('全データ削除');
     await DB.clearAll();
     await DB.init();
     state.settings = await DB.getAllSettings();
@@ -1420,7 +1434,7 @@
     await refreshHeader();
     await renderList();
     await renderSettings();
-    toast('全データを削除しました');
+    toastUndo('全データを削除しました');
   }
 
   // ---------- ユーティリティ ----------
@@ -1432,10 +1446,54 @@
   let toastTimer = null;
   function toast(msg) {
     const t = $('#toast');
-    t.textContent = msg;
+    t.innerHTML = `<span>${esc(msg)}</span>`;
     t.classList.remove('hidden');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => t.classList.add('hidden'), 2200);
+  }
+  function toastUndo(msg) {
+    const t = $('#toast');
+    t.innerHTML = `<span>${esc(msg)}</span><button class="toast-undo" id="toastUndoBtn">⮌ 戻す</button>`;
+    t.classList.remove('hidden');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.add('hidden'), 6000);
+    $('#toastUndoBtn').addEventListener('click', async () => {
+      clearTimeout(toastTimer); t.classList.add('hidden');
+      await undoLast();
+    });
+  }
+
+  // ---------- Undo ----------
+  async function pushUndoSnapshot(label) {
+    try {
+      const snap = await DB.snapshot();
+      state.undoStack.push({ snap, label, at: Date.now() });
+      if (state.undoStack.length > UNDO_LIMIT) state.undoStack.shift();
+      updateUndoButton();
+    } catch (e) { console.warn('snapshot失敗', e); }
+  }
+  function updateUndoButton() {
+    const btn = $('#undoBtn');
+    if (!btn) return;
+    btn.disabled = state.undoStack.length === 0;
+    btn.title = state.undoStack.length === 0 ? '元に戻す（履歴なし）' : `元に戻す（履歴${state.undoStack.length}件、最後: ${state.undoStack[state.undoStack.length - 1].label}）`;
+  }
+  async function undoLast() {
+    if (state.undoStack.length === 0) { toast('元に戻せる操作がありません'); return; }
+    const last = state.undoStack.pop();
+    await DB.restoreSnapshot(last.snap);
+    state.settings = await DB.getAllSettings();
+    await refreshCategories();
+    await refreshHeader();
+    // 現在のビューを再描画
+    const active = document.querySelector('.view.active');
+    const v = active ? active.id.replace('view-', '') : '';
+    if (v === 'list') await renderList();
+    else if (v === 'fee') await renderFee();
+    else if (v === 'summary') await renderSummary();
+    else if (v === 'settings') await renderSettings();
+    updateUndoButton();
+    toast(`「${last.label}」を元に戻しました`);
   }
 
   function registerSW() {
