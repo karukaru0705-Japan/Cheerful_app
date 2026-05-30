@@ -53,7 +53,10 @@
     objectUrls: [],        // 解放用
     listScope: 'period',   // 取引一覧の表示範囲: 'period' | 'all'
     feeTarget: null,
-    bulkPayTarget: null
+    bulkPayTarget: null,
+    dragMode: false,
+    dragActive: false,
+    dragSet: null
   };
 
   // ---------- 初期化 ----------
@@ -124,7 +127,7 @@
     $('#segExpense').addEventListener('click', () => setType('支出'));
     $('#segIncome').addEventListener('click', () => setType('収入'));
 
-    $('#entryPhoto').addEventListener('change', (e) => {
+    const onPhotoChange = (e) => {
       const file = e.target.files[0];
       if (!file) return;
       if (state.pendingPhotoUrl) URL.revokeObjectURL(state.pendingPhotoUrl);
@@ -133,7 +136,9 @@
       state.pendingPhotoUrl = URL.createObjectURL(file);
       $('#photoPreviewImg').src = state.pendingPhotoUrl;
       $('#photoPreview').classList.remove('hidden');
-    });
+    };
+    $('#entryPhoto').addEventListener('change', onPhotoChange);
+    $('#entryPhotoAlbum').addEventListener('change', onPhotoChange);
     $('#photoRemove').addEventListener('click', clearPhotoInput);
 
     $('#entryForm').addEventListener('submit', onSubmitEntry);
@@ -156,6 +161,7 @@
     state.pendingPhotoUrl = null;
     state.removePhoto = true;
     $('#entryPhoto').value = '';
+    $('#entryPhotoAlbum').value = '';
     $('#photoPreviewImg').src = '';
     $('#photoPreview').classList.add('hidden');
   }
@@ -254,9 +260,13 @@
       else expenseSum += t.amount;
     });
     const fee = await computeFeeTotals();
+    // ユニフォーム積立金（部費からの自動積立）
+    const unifondPer = Number(settings.unifondPerMonth || 0);
+    const autoUnifond = unifondPer * fee.done1Count;
     const incomeTotal = carryover + incomeSum + fee.done;
-    const balance = incomeTotal - expenseSum;
-    return { carryover, incomeSum, expenseSum, incomeTotal, expenseTotal: expenseSum, balance, txs, allCount: allTxs.length, period, feeDone: fee.done };
+    const expenseTotal = expenseSum + autoUnifond;
+    const balance = incomeTotal - expenseTotal;
+    return { carryover, incomeSum, expenseSum: expenseTotal, incomeTotal, expenseTotal, balance, txs, allCount: allTxs.length, period, feeDone: fee.done, autoUnifond };
   }
 
   // ---------- 取引一覧 ----------
@@ -451,6 +461,14 @@
     incMap['部費'].details = fee.done1Count
       ? [`${fee.fee.toLocaleString('ja-JP')}円×${fee.done1Count}ヶ月（集金済）`]
       : [];
+
+    // ユニフォーム積立金：集金済月数 × 単価 を自動で支出計上
+    const unifondPer = Number(settings.unifondPerMonth || 0);
+    if (unifondPer > 0 && fee.done1Count > 0) {
+      if (!expMap['ユニフォーム積立金']) expMap['ユニフォーム積立金'] = { cat: 'ユニフォーム積立金', amount: 0, details: [] };
+      expMap['ユニフォーム積立金'].amount = unifondPer * fee.done1Count;
+      expMap['ユニフォーム積立金'].details = [`${unifondPer.toLocaleString('ja-JP')}円×${fee.done1Count}ヶ月（部費から積立）`];
+    }
 
     const orderedInc = ['前年度繰越金', ...incomeCats.filter((c) => c !== '前年度繰越金'),
       ...Object.keys(incMap).filter((c) => c !== '前年度繰越金' && !incomeCats.includes(c))];
@@ -653,20 +671,20 @@
         <h2 class="page-title">4. 監査確認</h2>
         <p>本会計報告書の内容を確認しました。</p>
         <div class="audit-block">
-          <div class="audit-row">
-            <span class="audit-label">会計担当者</span>
-            <span class="audit-sign">${esc(treasurer || '　　　　　　　')}　　自署：__________________</span>
-            <span class="audit-date">日付：　　年　月　日</span>
+          <div class="audit-row-big">
+            <div class="audit-label-big">会計担当者　自署</div>
+            <div class="audit-sign-box"></div>
+            <div class="audit-date-line">日付：　　　　　年　　　月　　　日</div>
           </div>
-          <div class="audit-row">
-            <span class="audit-label">監査者①</span>
-            <span class="audit-sign">自署：__________________</span>
-            <span class="audit-date">日付：　　年　月　日</span>
+          <div class="audit-row-big">
+            <div class="audit-label-big">監査者①　自署</div>
+            <div class="audit-sign-box"></div>
+            <div class="audit-date-line">日付：　　　　　年　　　月　　　日</div>
           </div>
-          <div class="audit-row">
-            <span class="audit-label">監査者②</span>
-            <span class="audit-sign">自署：__________________</span>
-            <span class="audit-date">日付：　　年　月　日</span>
+          <div class="audit-row-big">
+            <div class="audit-label-big">監査者②　自署</div>
+            <div class="audit-sign-box"></div>
+            <div class="audit-date-line">日付：　　　　　年　　　月　　　日</div>
           </div>
         </div>
       </div>
@@ -709,8 +727,11 @@
       memberSub, done1Count, plan1Count };
   }
 
-  function feeCellInner(st, fee) {
-    if (st === 'done1') return `<span class="fee-mark done">●</span><span class="fee-amt">${fee.toLocaleString('ja-JP')}</span>`;
+  function feeCellInner(st, fee, paidDate) {
+    if (st === 'done1') {
+      const dateShort = paidDate ? `${Number(paidDate.split('-')[1])}/${Number(paidDate.split('-')[2])}` : '';
+      return `<span class="fee-mark done">●</span><span class="fee-amt">${fee.toLocaleString('ja-JP')}</span>${dateShort ? `<span class="fee-date">${dateShort}</span>` : ''}`;
+    }
     if (st === 'plan1') return `<span class="fee-mark plan">◯</span><span class="fee-amt">${fee.toLocaleString('ja-JP')}</span>`;
     return `<span class="fee-dash">–</span>`;
   }
@@ -723,7 +744,8 @@
       t.months.forEach((ym) => {
         const cell = t.cellMap[`${m.id}|${ym}`];
         const st = cell && cell.status;
-        cells += `<td><div class="fee-cell" data-member="${m.id}" data-ym="${ym}">${feeCellInner(st, t.fee)}</div></td>`;
+        const pd = cell && cell.paidDate;
+        cells += `<td><div class="fee-cell" data-member="${m.id}" data-ym="${ym}">${feeCellInner(st, t.fee, pd)}</div></td>`;
       });
       html += `<tr><td class="name-col">${esc(m.name)}<button class="bulk-pay-btn" data-member="${m.id}" title="まとめて納付">💰</button></td>${cells}<td class="sub-col">${yen(t.memberSub[m.id].done)}</td></tr>`;
     });
@@ -734,7 +756,10 @@
 
   async function renderFee() {
     const t = await computeFeeTotals();
-    $('#feePeriod').textContent = `期間：${periodLabel(t.period)}（${t.months.length}ヶ月）　月会費 ${yen(t.fee)}／お休み ${yen(t.half)}`;
+    const settings = await DB.getAllSettings();
+    const unifondPer = Number(settings.unifondPerMonth || 0);
+    const unifondNote = unifondPer > 0 ? `／うちユニフォーム積立 ${yen(unifondPer)}` : '';
+    $('#feePeriod').textContent = `期間：${periodLabel(t.period)}（${t.months.length}ヶ月）　月会費 ${yen(t.fee)}${unifondNote}`;
 
     const ul = $('#memberList');
     ul.innerHTML = '';
@@ -760,6 +785,7 @@
       wrap.innerHTML = buildFeeGrid(t);
       wrap.querySelectorAll('.fee-cell').forEach((cell) => {
         cell.addEventListener('click', () => {
+          if (state.dragMode) return; // ドラッグモード時は通常タップ無効
           const mid = cell.dataset.member;
           const member = t.members.find((x) => String(x.id) === String(mid));
           openFeeSheet(mid, cell.dataset.ym, member ? member.name : '');
@@ -804,11 +830,39 @@
   function closeFeeSheet() { $('#feeSheet').classList.add('hidden'); state.feeTarget = null; }
 
   // ---------- まとめて納付 ----------
+  async function populateBulkPayMemberSelect(selectedId) {
+    const members = await DB.getMembers();
+    const sel = $('#bulkPayMember');
+    sel.innerHTML = '';
+    members.forEach((m) => {
+      const o = document.createElement('option');
+      o.value = m.id; o.textContent = m.name;
+      sel.appendChild(o);
+    });
+    if (selectedId != null) sel.value = String(selectedId);
+  }
   async function openBulkPaySheet(memberId, name) {
     const settings = await DB.getAllSettings();
     const period = getPeriod(settings);
-    state.bulkPayTarget = { memberId, name };
+    state.bulkPayTarget = { memberId, name, fromRow: true };
+    await populateBulkPayMemberSelect(memberId);
+    $('#bulkPayMemberField').classList.add('hidden');  // 行から開いた時はメンバー固定
     $('#bulkPayTitle').textContent = `${name}さん：まとめて納付`;
+    $('#bulkPayStart').value = period.start;
+    $('#bulkPayEnd').value = period.end;
+    $('#bulkPayDate').value = todayStr();
+    updateBulkPayAmount();
+    $('#bulkPaySheet').classList.remove('hidden');
+  }
+  async function openBulkAll() {
+    const settings = await DB.getAllSettings();
+    const period = getPeriod(settings);
+    const members = await DB.getMembers();
+    if (members.length === 0) { toast('まずメンバーを追加してください'); return; }
+    state.bulkPayTarget = { memberId: null, name: '', fromRow: false };
+    await populateBulkPayMemberSelect(members[0].id);
+    $('#bulkPayMemberField').classList.remove('hidden');  // メンバー選択を表示
+    $('#bulkPayTitle').textContent = '一括入力（複数月をまとめて集金済に）';
     $('#bulkPayStart').value = period.start;
     $('#bulkPayEnd').value = period.end;
     $('#bulkPayDate').value = todayStr();
@@ -832,13 +886,16 @@
   async function confirmBulkPay() {
     const t = state.bulkPayTarget;
     if (!t) return;
+    // 一括入力モード（fromRow=false）ではドロップダウンの選択値を採用
+    const memberId = t.fromRow ? t.memberId : $('#bulkPayMember').value;
+    if (!memberId) { toast('メンバーを選択してください'); return; }
     const start = $('#bulkPayStart').value;
     const end = $('#bulkPayEnd').value;
     const paidDate = $('#bulkPayDate').value || todayStr();
     if (!start || !end || start > end) { toast('期間を正しく指定してください'); return; }
     const months = monthsInPeriod({ start, end });
     for (const ym of months) {
-      await DB.setFeeCell(`${t.memberId}|${ym}`, 'done1', paidDate);
+      await DB.setFeeCell(`${memberId}|${ym}`, 'done1', paidDate);
     }
     closeBulkPaySheet();
     await renderFee();
@@ -866,6 +923,70 @@
       state.listScope = b.dataset.scope;
       renderList();
     }));
+    $('#openGallery').addEventListener('click', async () => {
+      await renderGallery();
+      $('#galleryModal').classList.remove('hidden');
+    });
+    $('#galleryClose').addEventListener('click', () => $('#galleryModal').classList.add('hidden'));
+    $('#galleryModal').addEventListener('click', (e) => { if (e.target.id === 'galleryModal') $('#galleryModal').classList.add('hidden'); });
+  }
+
+  async function renderGallery() {
+    const txs = await DB.getAllTransactions();
+    const withPhoto = txs.filter((t) => t.photoId).sort((a, b) => b.date < a.date ? -1 : b.date > a.date ? 1 : 0);
+    const grid = $('#galleryGrid');
+    if (withPhoto.length === 0) {
+      grid.innerHTML = '<p class="empty-msg">領収書写真はまだありません。入力時に「📷 カメラで撮影」から保存できます。</p>';
+      return;
+    }
+    const items = [];
+    for (const t of withPhoto) {
+      const blob = await DB.getPhoto(t.photoId);
+      if (!blob) continue;
+      const url = URL.createObjectURL(blob);
+      state.objectUrls.push(url);
+      items.push(`<div class="gallery-item" data-id="${t.id}">
+        <img src="${url}" alt="" />
+        <div class="meta">
+          <div>${t.date}</div>
+          <div class="desc">${esc(t.desc || t.category)}</div>
+          <div class="amt ${t.type === '収入' ? 'income' : ''}">${t.type === '収入' ? '+' : '−'}${yen(t.amount)}</div>
+        </div>
+      </div>`);
+    }
+    grid.innerHTML = items.join('');
+    grid.querySelectorAll('.gallery-item').forEach((el) => {
+      el.addEventListener('click', () => {
+        const id = parseInt(el.dataset.id, 10);
+        const tx = withPhoto.find((t) => t.id === id);
+        if (tx && tx.photoId) showPhoto(tx.photoId);
+      });
+    });
+  }
+
+  function toggleDragMode() {
+    state.dragMode = !state.dragMode;
+    const btn = $('#dragModeToggle');
+    btn.textContent = state.dragMode ? '🖱 ドラッグモード：ON' : '🖱 ドラッグモード：OFF';
+    btn.classList.toggle('on', state.dragMode);
+    $('#feeGridWrap').classList.toggle('drag-mode', state.dragMode);
+  }
+
+  async function endDrag() {
+    if (!state.dragActive) return;
+    state.dragActive = false;
+    const date = todayStr();
+    const toApply = Array.from(state.dragSet || []);
+    state.dragSet = new Set();
+    if (toApply.length > 0) {
+      for (const key of toApply) await DB.setFeeCell(key, 'done1', date);
+      await renderFee();
+      await refreshHeader();
+      toast(`${toApply.length}セルを集金済にしました`);
+    } else {
+      // 何もマークされてない時はハイライトだけ消す
+      $$('.fee-cell.dragging-over').forEach((c) => c.classList.remove('dragging-over'));
+    }
   }
 
   function bindFee() {
@@ -877,6 +998,36 @@
     $('#bulkPayCancel').addEventListener('click', closeBulkPaySheet);
     $('#bulkPayConfirm').addEventListener('click', confirmBulkPay);
     ['#bulkPayStart', '#bulkPayEnd', '#bulkPayDate'].forEach((sel) => $(sel).addEventListener('input', updateBulkPayAmount));
+    // トップの一括入力／ドラッグモード
+    $('#openBulkAll').addEventListener('click', openBulkAll);
+    $('#dragModeToggle').addEventListener('click', toggleDragMode);
+    // ドラッグハンドラ（feeGridWrap上）
+    const wrap = $('#feeGridWrap');
+    wrap.addEventListener('pointerdown', (e) => {
+      if (!state.dragMode) return;
+      const cell = e.target.closest('.fee-cell');
+      if (!cell) return;
+      e.preventDefault();
+      state.dragActive = true;
+      state.dragSet = new Set();
+      state.dragSet.add(`${cell.dataset.member}|${cell.dataset.ym}`);
+      cell.classList.add('dragging-over');
+      try { wrap.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+    wrap.addEventListener('pointermove', (e) => {
+      if (!state.dragActive || !state.dragMode) return;
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const cell = el && el.closest && el.closest('.fee-cell');
+      if (!cell) return;
+      const key = `${cell.dataset.member}|${cell.dataset.ym}`;
+      if (!state.dragSet.has(key)) {
+        state.dragSet.add(key);
+        cell.classList.add('dragging-over');
+      }
+    });
+    wrap.addEventListener('pointerup', endDrag);
+    wrap.addEventListener('pointercancel', endDrag);
+    wrap.addEventListener('pointerleave', endDrag);
     $$('#feeSheet .sheet-btn').forEach((btn) => btn.addEventListener('click', async () => {
       const status = btn.dataset.status;
       if (status === 'cancel') { closeFeeSheet(); return; }
@@ -900,6 +1051,7 @@
       await DB.setSetting('treasurerName', $('#setTreasurer').value.trim());
       await DB.setSetting('carryover', parseInt($('#setCarryover').value, 10) || 0);
       await DB.setSetting('monthlyFee', parseInt($('#setFee').value, 10) || 1000);
+      await DB.setSetting('unifondPerMonth', parseInt($('#setUnifond').value, 10) || 0);
       toast('設定を保存しました');
       await refreshHeader();
     });
@@ -936,6 +1088,7 @@
     $('#setTreasurer').value = s.treasurerName || '';
     $('#setCarryover').value = s.carryover != null ? s.carryover : '';
     $('#setFee').value = s.monthlyFee != null ? s.monthlyFee : 1000;
+    $('#setUnifond').value = s.unifondPerMonth != null ? s.unifondPerMonth : 300;
     renderPeriodFields(s);
     await renderCatLists();
     renderBackupStatus(s);

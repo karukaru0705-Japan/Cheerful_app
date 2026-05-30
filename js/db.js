@@ -63,6 +63,7 @@ const DB = (() => {
       await setSetting('treasurerName', '');
       await setSetting('carryover', 0);
       await setSetting('monthlyFee', 1000);
+      await setSetting('unifondPerMonth', 300);
       for (const name of DEFAULT_INCOME_CATS) await addCategory('収入', name, true);
       for (const name of DEFAULT_EXPENSE_CATS) await addCategory('支出', name, true);
       await setSetting('initialized', true);

@@ -59,7 +59,14 @@
 
         <label class="field">
           <span class="field-label">領収書写真（任意）</span>
-          <input type="file" id="entryPhoto" accept="image/*" />
+          <div class="photo-actions">
+            <label class="btn ghost photo-btn">📷 カメラで撮影
+              <input type="file" id="entryPhoto" accept="image/*" capture="environment" hidden />
+            </label>
+            <label class="btn ghost photo-btn">🖼 アルバムから選ぶ
+              <input type="file" id="entryPhotoAlbum" accept="image/*" hidden />
+            </label>
+          </div>
         </label>
         <div id="photoPreview" class="photo-preview hidden">
           <img id="photoPreviewImg" alt="領収書プレビュー" />
@@ -76,9 +83,12 @@
     <!-- 一覧ビュー -->
     <section id="view-list" class="view">
       <h2 class="view-title">取引一覧</h2>
-      <div class="seg" id="listScopeSeg" style="max-width:320px;margin:0 auto 8px">
-        <button type="button" class="seg-btn list-scope active" data-scope="period">この期間</button>
-        <button type="button" class="seg-btn list-scope" data-scope="all">全期間</button>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <div class="seg" id="listScopeSeg" style="flex:1">
+          <button type="button" class="seg-btn list-scope active" data-scope="period">この期間</button>
+          <button type="button" class="seg-btn list-scope" data-scope="all">全期間</button>
+        </div>
+        <button type="button" class="btn ghost small" id="openGallery">📷 領収書</button>
       </div>
       <div id="listPeriod" class="list-period"></div>
       <div class="list-summary card">
@@ -104,7 +114,12 @@
       </div>
 
       <div class="card">
-        <h3 class="block-title">納付状況（タップで設定）</h3>
+        <h3 class="block-title">納付状況</h3>
+        <div class="fee-toolbar">
+          <button type="button" class="btn primary" id="openBulkAll">📋 一括入力</button>
+          <button type="button" class="btn ghost" id="dragModeToggle">🖱 ドラッグモード：OFF</button>
+        </div>
+        <p style="font-size:11px;color:var(--muted);margin:4px 0 8px">タップで1セル設定／一括入力で複数月をまとめて／ドラッグモードONで指でなぞって連続集金済化</p>
         <p id="feeHint" class="empty-msg hidden">メンバーを追加すると表が表示されます。</p>
         <div id="feeGridWrap" class="fee-grid-wrap"></div>
         <div class="fee-legend">
@@ -221,6 +236,10 @@
           <span class="field-label">月会費（円／部費の基本レート）</span>
           <input type="number" id="setFee" inputmode="numeric" step="1" placeholder="1000" />
         </label>
+        <label class="field">
+          <span class="field-label">ユニフォーム積立額（円／月、部費から自動で積立て）</span>
+          <input type="number" id="setUnifond" inputmode="numeric" step="1" placeholder="300" />
+        </label>
         <div class="form-actions">
           <button type="submit" class="btn primary">設定を保存</button>
         </div>
@@ -285,6 +304,17 @@
     <img id="imgModalImg" alt="領収書" />
   </div>
 
+  <!-- 領収書ギャラリー -->
+  <div id="galleryModal" class="report-modal hidden">
+    <div class="report-actions no-print">
+      <button type="button" class="btn ghost" id="galleryClose">閉じる</button>
+    </div>
+    <div class="report-body">
+      <h2 style="text-align:center;margin:0 0 14px">領収書一覧</h2>
+      <div id="galleryGrid" class="gallery-grid"></div>
+    </div>
+  </div>
+
   <!-- 会計報告プレビュー（提出フォーム風） -->
   <div id="reportModal" class="report-modal hidden">
     <div class="report-actions no-print">
@@ -298,6 +328,10 @@
   <div id="bulkPaySheet" class="sheet-backdrop hidden">
     <div class="sheet">
       <div class="sheet-title" id="bulkPayTitle">まとめて納付</div>
+      <label class="field" id="bulkPayMemberField">
+        <span class="field-label">メンバー</span>
+        <select id="bulkPayMember"></select>
+      </label>
       <label class="field">
         <span class="field-label">開始月</span>
         <input type="month" id="bulkPayStart" />
