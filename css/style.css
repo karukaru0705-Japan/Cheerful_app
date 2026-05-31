@@ -330,6 +330,28 @@ body {
 .report-body { background: #fff; max-width: 720px; margin: 0 auto; padding: 22px; border-radius: 8px; color: #111; }
 .report-page { contain: layout style; }     /* 各ページの描画分離で再計算範囲を限定 */
 
+/* プレビュー：各セクション間に「印刷時のページ境目」を視覚化（画面のみ） */
+@media screen {
+  .report-page + .report-page {
+    position: relative;
+    margin-top: 36px;
+    padding-top: 28px;
+    border-top: 2px dashed #b8c5cc;
+  }
+  .report-page + .report-page::before {
+    content: "✂ —— ここでページが分かれます（印刷時）—— ✂";
+    position: absolute;
+    top: -11px; left: 50%; transform: translateX(-50%);
+    background: #fff;
+    padding: 0 14px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #6b7280;
+    letter-spacing: 1px;
+    white-space: nowrap;
+  }
+}
+
 /* モーダル表示中の本体スクロール抑止（iOS Safari 安定化） */
 body.modal-open { overflow: hidden; position: fixed; width: 100%; }
 .report-title { text-align: center; font-size: 17px; font-weight: 700; line-height: 1.5; margin-bottom: 16px; }
