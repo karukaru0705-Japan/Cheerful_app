@@ -198,10 +198,18 @@ const DB = (() => {
 
   // ---- 部費セル（メンバー×月の状態） ----
   // status: 'plan1'|'done1'（なし=対象外）。paidDate: 'YYYY-MM-DD'（集金済の納付日）
+  // feeAtSet: セル設定時の月会費レート（後から会費改定しても過去金額が変わらないよう保存）
   async function setFeeCell(key, status, paidDate) {
     const s = await tx('feeCells', 'readwrite');
     if (!status) return reqP(s.delete(key));
-    const row = { key, status };
+    // 既存セルがあればfeeAtSetを保持、無ければ現在の月会費でスナップショット
+    const cur = await reqP(s.get(key));
+    let feeAtSet = cur && cur.feeAtSet;
+    if (feeAtSet == null) {
+      const settings = await getAllSettings();
+      feeAtSet = Number(settings.monthlyFee || 1000);
+    }
+    const row = { key, status, feeAtSet };
     if (paidDate) row.paidDate = paidDate;
     return reqP(s.put(row));
   }
@@ -210,10 +218,10 @@ const DB = (() => {
     return reqP(s.getAll());
   }
   async function getFeeCellMap() {
-    // key -> { status, paidDate }
+    // key -> { status, paidDate, feeAtSet }
     const all = await getFeeCells();
     const m = {};
-    all.forEach((c) => { m[c.key] = { status: c.status, paidDate: c.paidDate || null }; });
+    all.forEach((c) => { m[c.key] = { status: c.status, paidDate: c.paidDate || null, feeAtSet: c.feeAtSet || null }; });
     return m;
   }
 
@@ -256,7 +264,8 @@ const DB = (() => {
       for (const c of data.feeCells) {
         const [oldMid, ym] = c.key.split('|');
         const newMid = memberIdMap[oldMid] != null ? memberIdMap[oldMid] : oldMid;
-        await reqP(s.put({ key: `${newMid}|${ym}`, status: c.status }));
+        // paidDate を含めて完全に保存
+        await reqP(s.put({ key: `${newMid}|${ym}`, status: c.status, paidDate: c.paidDate || null }));
       }
     }
     // 写真IDの再マップ
@@ -294,24 +303,32 @@ const DB = (() => {
     });
   }
 
-  // ---- スナップショット（Undo用、写真は除く軽量版） ----
+  // ---- スナップショット（Undo用、写真も含む） ----
   async function snapshot() {
     const settings = await getAllSettings();
     const categories = await getCategories();
     const transactions = await getAllTransactions();
     const members = await getMembers();
     const feeCells = await getFeeCells();
-    return { settings, categories, transactions, members, feeCells };
+    // 写真もBlobのまま保持（メモリ参照のみ、ディスク容量はDB内に既存）
+    const photos = [];
+    {
+      const s = await tx('photos');
+      const all = await reqP(s.getAll());
+      photos.push(...all);
+    }
+    return { settings, categories, transactions, members, feeCells, photos };
   }
   async function restoreSnapshot(s) {
     const db = await open();
     await new Promise((res, rej) => {
-      const t = db.transaction(['transactions', 'categories', 'settings', 'members', 'feeCells'], 'readwrite');
+      const t = db.transaction(['transactions', 'categories', 'settings', 'members', 'feeCells', 'photos'], 'readwrite');
       t.objectStore('transactions').clear();
       t.objectStore('categories').clear();
       t.objectStore('settings').clear();
       t.objectStore('members').clear();
       t.objectStore('feeCells').clear();
+      t.objectStore('photos').clear();
       t.oncomplete = () => res();
       t.onerror = () => rej(t.error);
     });
@@ -319,6 +336,7 @@ const DB = (() => {
     if (s.categories) { const st = await tx('categories', 'readwrite'); for (const c of s.categories) await reqP(st.add(c)); }
     if (s.members) { const st = await tx('members', 'readwrite'); for (const m of s.members) await reqP(st.add(m)); }
     if (s.feeCells) { const st = await tx('feeCells', 'readwrite'); for (const c of s.feeCells) await reqP(st.put(c)); }
+    if (s.photos) { const st = await tx('photos', 'readwrite'); for (const p of s.photos) await reqP(st.add(p)); }
     if (s.transactions) { const st = await tx('transactions', 'readwrite'); for (const r of s.transactions) await reqP(st.add(r)); }
   }
 

@@ -147,8 +147,15 @@
 
   // ---------- カテゴリ ----------
   async function refreshCategories() {
-    // 部費は「部費」タブで管理するため、入力フォームの収入カテゴリからは除外
-    const cats = (await DB.getCategories(state.type)).filter((c) => !(state.type === '収入' && c.name === '部費'));
+    // 自動管理されるカテゴリは入力フォームから除外（収入「部費」と支出「ユニフォーム積立金」）
+    // 「部費」は部費タブのグリッドで、「ユニフォーム積立金」は集金済月数×単価で自動計上
+    const HIDDEN_INCOME = new Set(['部費']);
+    const HIDDEN_EXPENSE = new Set(['ユニフォーム積立金']);
+    const cats = (await DB.getCategories(state.type)).filter((c) => {
+      if (state.type === '収入' && HIDDEN_INCOME.has(c.name)) return false;
+      if (state.type === '支出' && HIDDEN_EXPENSE.has(c.name)) return false;
+      return true;
+    });
     const sel = $('#entryCategory');
     sel.innerHTML = '';
     cats.forEach((c) => {
@@ -156,6 +163,14 @@
       o.value = c.name; o.textContent = c.name;
       sel.appendChild(o);
     });
+    // 編集時に隠しカテゴリの取引を編集できるよう、現在の選択値が無ければ追加
+    if (state.editingCategory && !cats.some((c) => c.name === state.editingCategory)) {
+      const o = document.createElement('option');
+      o.value = state.editingCategory;
+      o.textContent = `${state.editingCategory}（自動管理）`;
+      sel.appendChild(o);
+      sel.value = state.editingCategory;
+    }
   }
 
   // ---------- 入力フォーム ----------
@@ -251,6 +266,7 @@
 
   function resetEntryForm() {
     state.editingId = null;
+    state.editingCategory = null;
     $('#entryId').value = '';
     $('#entryForm').reset();
     $('#entryDate').value = defaultEntryDate();
@@ -266,6 +282,7 @@
     const t = await DB.getTransaction(id);
     if (!t) return;
     state.editingId = id;
+    state.editingCategory = t.category;
     setType(t.type);
     await refreshCategories();
     $('#entryDate').value = t.date;
@@ -299,8 +316,13 @@
     const txs = allTxs.filter((t) => inPeriod(t.date, period));
     let incomeSum = 0, expenseSum = 0;
     txs.forEach((t) => {
-      if (t.type === '収入') { if (t.category === '部費') return; incomeSum += t.amount; } // 部費はグリッド管理
-      else expenseSum += t.amount;
+      if (t.type === '収入') {
+        if (t.category === '部費') return; // 部費はグリッド管理（手動入力は二重計上回避のため無視）
+        incomeSum += t.amount;
+      } else {
+        if (t.category === 'ユニフォーム積立金') return; // 自動計算するため手動分は無視
+        expenseSum += t.amount;
+      }
     });
     const fee = await computeFeeTotals();
     // ユニフォーム積立金（部費からの自動積立）
@@ -320,32 +342,36 @@
     const members = await DB.getMembers();
     const cells = await DB.getFeeCells();
     const settings = await DB.getAllSettings();
-    const fee = Number(settings.monthlyFee || 1000);
+    const currentFee = Number(settings.monthlyFee || 1000);
     const memberMap = {};
     members.forEach((m) => { memberMap[m.id] = m.name; });
-    const grouped = {}; // key: memberId + '|' + paidDate
+    const cellFee = (c) => (c && c.feeAtSet) ? c.feeAtSet : currentFee;
+    // key: memberId + '|' + paidDate → { yms:[], cellByYm:{} }
+    const grouped = {};
     cells.forEach((c) => {
       if (c.status !== 'done1') return;
       const [mid, ym] = c.key.split('|');
       if (!memberMap[mid]) return;
       const dateKey = c.paidDate || '0000-00-00';
       const k = `${mid}|${dateKey}`;
-      (grouped[k] = grouped[k] || []).push(ym);
+      const g = grouped[k] || (grouped[k] = { yms: [], cellByYm: {} });
+      g.yms.push(ym);
+      g.cellByYm[ym] = c;
     });
     const events = [];
-    for (const [k, ymList] of Object.entries(grouped)) {
+    for (const [k, g] of Object.entries(grouped)) {
       const [mid, dateKey] = k.split('|');
-      ymList.sort();
+      g.yms.sort();
       const known = dateKey !== '0000-00-00';
-      // 期間フィルタ適用
-      let effectiveYms = ymList;
+      let effectiveYms = g.yms;
       let truncated = false;
       if (periodFilter) {
-        effectiveYms = ymList.filter((ym) => ym >= periodFilter.start && ym <= periodFilter.end);
+        effectiveYms = g.yms.filter((ym) => ym >= periodFilter.start && ym <= periodFilter.end);
         if (effectiveYms.length === 0) continue;
-        truncated = effectiveYms.length !== ymList.length;
+        truncated = effectiveYms.length !== g.yms.length;
       }
-      const amount = effectiveYms.length * fee;
+      // 各セルの個別単価で集計（feeAtSet優先）
+      const amount = effectiveYms.reduce((sum, ym) => sum + cellFee(g.cellByYm[ym]), 0);
       let desc = formatFeeMonths(memberMap[mid], effectiveYms);
       if (!known) desc += '（納付日未記録）';
       if (truncated) desc += ' ※指定期間内分のみ';
@@ -374,7 +400,11 @@
     const scope = state.listScope || 'period';
 
     const allTxs = await DB.getAllTransactions();
-    const txs = allTxs.filter((t) => !(t.type === '収入' && t.category === '部費'));
+    // 自動管理カテゴリの手動取引は除外（集計と一覧の残高を整合させるため）
+    const txs = allTxs.filter((t) => !(
+      (t.type === '収入' && t.category === '部費') ||
+      (t.type === '支出' && t.category === 'ユニフォーム積立金')
+    ));
     // 指定期間モード: 期間で切り詰めた部費イベント／全期間モード: そのまま
     const feeEvents = await buildFeeEvents(scope === 'period' ? period : null);
     const allFeeEvents = scope === 'period' ? await buildFeeEvents() : feeEvents;
@@ -555,6 +585,9 @@
       const map = {};
       catList.forEach((c) => { map[c] = { cat: c, amount: 0, details: [] }; });
       txs.filter((t) => t.type === type).forEach((t) => {
+        // 自動管理されるカテゴリは集約から除外（後で上書き）
+        if (type === '収入' && t.category === '部費') return;
+        if (type === '支出' && t.category === 'ユニフォーム積立金') return;
         if (!map[t.category]) map[t.category] = { cat: t.category, amount: 0, details: [] };
         map[t.category].amount += t.amount;
         const d = (t.note || t.desc || '').trim();
@@ -597,9 +630,14 @@
     const expenseTotal = expenseRows.reduce((s, r) => s + r.amount, 0);
 
     // 全取引リスト（古い順・残高付き）※部費イベントは期間内分のみに切り詰め
+    // 自動管理カテゴリ（収入「部費」/支出「ユニフォーム積立金」）の手動取引は集計と整合させるため除外
+    const txsForList = txs.filter((t) => !(
+      (t.type === '収入' && t.category === '部費') ||
+      (t.type === '支出' && t.category === 'ユニフォーム積立金')
+    ));
     const feeEvents = await buildFeeEvents(period);
     const itemsAll = [
-      ...txs.map((t) => ({ date: t.date, type: t.type, category: t.category, desc: t.desc || '', amount: t.amount, source: 'tx', id: t.id })),
+      ...txsForList.map((t) => ({ date: t.date, type: t.type, category: t.category, desc: t.desc || '', amount: t.amount, source: 'tx', id: t.id })),
       ...feeEvents.map((e) => ({ date: e.date, type: e.type, category: e.category, desc: e.desc, amount: e.amount, source: 'fee', memberId: e.memberId, ymList: e.ymList }))
     ];
     if (unifondPer > 0 && fee.done1Count > 0) {
@@ -694,6 +732,7 @@
   async function renderReport() {
     const agg = await aggregate();
     const settings = await DB.getAllSettings();
+    const period = getPeriod(settings);
     const actual = settings.actualBalance;
     const team = settings.teamName || 'チアフル';
     const treasurer = settings.treasurerName || '（未設定）';
@@ -874,13 +913,13 @@
 
   async function computeFeeTotals() {
     const settings = await DB.getAllSettings();
-    const fee = Number(settings.monthlyFee || 1000);
+    const currentFee = Number(settings.monthlyFee || 1000);
     const period = getPeriod(settings);
     const months = monthsInPeriod(period);
     const members = await DB.getMembers();
     const cellMap = await DB.getFeeCellMap();
-    const amt = (st) => (st === 'done1' || st === 'plan1') ? fee : 0;
-    const isDone = (st) => st === 'done1';
+    // セル単価: 保存時のfeeAtSetを優先（過去レート保護）。無ければ現在値
+    const cellFee = (cell) => (cell && cell.feeAtSet) ? cell.feeAtSet : currentFee;
     let done = 0, plan = 0, done1Count = 0, plan1Count = 0;
     const memberSub = {};
     members.forEach((m) => {
@@ -888,15 +927,15 @@
       months.forEach((ym) => {
         const cell = cellMap[`${m.id}|${ym}`];
         const st = cell && cell.status;
-        const a = amt(st); if (!a) return;
-        sp += a; if (isDone(st)) sd += a;
-        if (st === 'done1') done1Count++;
-        else if (st === 'plan1') plan1Count++;
+        if (st !== 'done1' && st !== 'plan1') return;
+        const a = cellFee(cell);
+        sp += a;
+        if (st === 'done1') { sd += a; done1Count++; } else { plan1Count++; }
       });
       memberSub[m.id] = { done: sd, plan: sp };
       done += sd; plan += sp;
     });
-    return { fee, period, months, members, cellMap, done, plan, unpaid: plan - done,
+    return { fee: currentFee, period, months, members, cellMap, done, plan, unpaid: plan - done,
       memberSub, done1Count, plan1Count };
   }
 
@@ -922,7 +961,8 @@
         const cell = t.cellMap[`${m.id}|${ym}`];
         const st = cell && cell.status;
         const pd = cell && cell.paidDate;
-        cells += `<td><div class="fee-cell" data-member="${m.id}" data-ym="${ym}">${feeCellInner(st, t.fee, pd)}</div></td>`;
+        const cf = (cell && cell.feeAtSet) ? cell.feeAtSet : t.fee;
+        cells += `<td><div class="fee-cell" data-member="${m.id}" data-ym="${ym}">${feeCellInner(st, cf, pd)}</div></td>`;
       });
       html += `<tr><td class="name-col">${esc(m.name)}<button class="bulk-pay-btn" data-member="${m.id}" title="まとめて納付">💰</button></td>${cells}<td class="sub-col">${yen(t.memberSub[m.id].done)}</td></tr>`;
     });
@@ -1073,11 +1113,12 @@
     if (!ym) { $('#retirePreview').textContent = '退部年月を選択してください'; return; }
     const cells = await DB.getFeeCells();
     const affected = cells.filter((c) => c.key.startsWith(t.memberId + '|') && c.key.split('|')[1] >= ym);
-    const doneCount = affected.filter((c) => c.status === 'done1').length;
+    const doneCells = affected.filter((c) => c.status === 'done1');
     const settings = await DB.getAllSettings();
-    const fee = Number(settings.monthlyFee || 1000);
-    const refund = doneCount * fee;
-    $('#retirePreview').innerHTML = `${ym}以降の影響：<strong>${affected.length}ヶ月</strong>を対象外に変更<br>うち集金済 <strong>${doneCount}ヶ月</strong>（返金額 <strong>${yen(refund)}</strong>）`;
+    const curFee = Number(settings.monthlyFee || 1000);
+    // 各セルのfeeAtSetを優先（過去レート保護）
+    const refund = doneCells.reduce((sum, c) => sum + (c.feeAtSet || curFee), 0);
+    $('#retirePreview').innerHTML = `${ym}以降の影響：<strong>${affected.length}ヶ月</strong>を対象外に変更<br>うち集金済 <strong>${doneCells.length}ヶ月</strong>（返金額 <strong>${yen(refund)}</strong>）`;
   }
 
   async function confirmRetire() {
@@ -1090,10 +1131,11 @@
     if (affected.length === 0) {
       if (!confirm('対象月のセルがありません。それでも退部処理を実行しますか？（記録は変わりません）')) return;
     }
-    const doneCount = affected.filter((c) => c.status === 'done1').length;
+    const doneCells = affected.filter((c) => c.status === 'done1');
     const settings = await DB.getAllSettings();
-    const fee = Number(settings.monthlyFee || 1000);
-    const refund = doneCount * fee;
+    const curFee = Number(settings.monthlyFee || 1000);
+    const refund = doneCells.reduce((sum, c) => sum + (c.feeAtSet || curFee), 0);
+    const doneCount = doneCells.length;
     let recordRefund = false;
     if (refund > 0) {
       recordRefund = confirm(`集金済 ${doneCount}ヶ月分（${yen(refund)}）を「部費返金」支出として自動記録しますか？\nOK：自動記録 ／ キャンセル：手動で別途入力`);
@@ -1104,8 +1146,16 @@
       const ymList = affected.map((c) => c.key.split('|')[1]).sort();
       const startM = Number(ymList[0].split('-')[1]);
       const endM = Number(ymList[ymList.length - 1].split('-')[1]);
-      // 返金日は退部月の1日とする（集計期間内に確実に入るように）
-      const refundDate = `${ym}-01`;
+      // 返金日は退部月の1日。ただし集計期間外なら期間末に丸める（集計に確実に反映）
+      const period = getPeriod(settings);
+      let refundDate = `${ym}-01`;
+      if (refundDate.slice(0, 7) > period.end) {
+        const [py, pm] = period.end.split('-').map(Number);
+        const lastDay = new Date(py, pm, 0).getDate();
+        refundDate = `${period.end}-${String(lastDay).padStart(2, '0')}`;
+      } else if (refundDate.slice(0, 7) < period.start) {
+        refundDate = `${period.start}-01`;
+      }
       await DB.addTransaction({
         date: refundDate,
         type: '支出', category: '部費返金',
@@ -1143,6 +1193,13 @@
     const paidDate = $('#bulkPayDate').value || todayStr();
     if (!start || !end || start > end) { toast('期間を正しく指定してください'); return; }
     const months = monthsInPeriod({ start, end });
+    // 集計期間外の月が混ざる場合は警告
+    const settings = await DB.getAllSettings();
+    const aggPeriod = getPeriod(settings);
+    const outside = months.filter((ym) => ym < aggPeriod.start || ym > aggPeriod.end);
+    if (outside.length > 0) {
+      if (!confirm(`指定期間（${periodLabel(aggPeriod)}）の外の月が${outside.length}ヶ月含まれます。\n外の月（${outside[0]}〜${outside[outside.length-1]}）は今の集計には反映されません。\n続行しますか？`)) return;
+    }
     await pushUndoSnapshot(`まとめて納付（${months.length}ヶ月）`);
     for (const ym of months) {
       await DB.setFeeCell(`${memberId}|${ym}`, 'done1', paidDate);
@@ -1444,6 +1501,7 @@
       const data = JSON.parse(text);
       await pushUndoSnapshot('バックアップ読み込み');
       await DB.importAll(data);
+      await DB.init(); // 既定値マイグレーション再実行（古いバックアップ救済）
       state.settings = await DB.getAllSettings();
       await refreshCategories();
       await refreshHeader();
