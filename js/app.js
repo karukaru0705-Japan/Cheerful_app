@@ -380,7 +380,7 @@
     if (withBalance.length === 0) {
       const empty = $('#txEmpty');
       empty.textContent = totalAll > 0
-        ? 'この期間の取引はありません。「全期間」に切替えるか期間を変えてください。'
+        ? '指定期間内の取引はありません。「全期間」に切替えるか期間を変えてください。'
         : 'まだ取引がありません。「入力」または「部費」から追加してください。';
       empty.classList.remove('hidden');
       return;
