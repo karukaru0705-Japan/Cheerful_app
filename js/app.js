@@ -314,7 +314,9 @@
 
   // ---------- 取引一覧 ----------
   // 部費納付イベント（feeCellsをpaidDate単位にまとめた仮想取引）
-  async function buildFeeEvents() {
+  // periodFilter を渡すと、各イベントを期間内月のみに切り詰める
+  // （期間内月が0なら除外、部分的に重なる場合は金額・月リスト・説明文を期間内分のみに）
+  async function buildFeeEvents(periodFilter) {
     const members = await DB.getMembers();
     const cells = await DB.getFeeCells();
     const settings = await DB.getAllSettings();
@@ -335,17 +337,21 @@
       const [mid, dateKey] = k.split('|');
       ymList.sort();
       const known = dateKey !== '0000-00-00';
-      const amount = ymList.length * fee;
+      // 期間フィルタ適用
+      let effectiveYms = ymList;
+      let truncated = false;
+      if (periodFilter) {
+        effectiveYms = ymList.filter((ym) => ym >= periodFilter.start && ym <= periodFilter.end);
+        if (effectiveYms.length === 0) continue;
+        truncated = effectiveYms.length !== ymList.length;
+      }
+      const amount = effectiveYms.length * fee;
+      let desc = formatFeeMonths(memberMap[mid], effectiveYms);
+      if (!known) desc += '（納付日未記録）';
+      if (truncated) desc += ' ※指定期間内分のみ';
       events.push({
-        date: dateKey,
-        type: '収入',
-        category: '部費',
-        amount,
-        desc: formatFeeMonths(memberMap[mid], ymList) + (known ? '' : '（納付日未記録）'),
-        source: 'fee',
-        memberId: mid,
-        ymList,
-        known
+        date: dateKey, type: '収入', category: '部費', amount, desc,
+        source: 'fee', memberId: mid, ymList: effectiveYms, known
       });
     }
     return events;
@@ -369,17 +375,18 @@
 
     const allTxs = await DB.getAllTransactions();
     const txs = allTxs.filter((t) => !(t.type === '収入' && t.category === '部費'));
-    const feeEvents = await buildFeeEvents();
+    // 指定期間モード: 期間で切り詰めた部費イベント／全期間モード: そのまま
+    const feeEvents = await buildFeeEvents(scope === 'period' ? period : null);
+    const allFeeEvents = scope === 'period' ? await buildFeeEvents() : feeEvents;
     let items = [
       ...txs.map((t) => ({ ...t, source: 'tx' })),
       ...feeEvents
     ];
-    const totalAll = items.length;
+    const totalAll = txs.length + allFeeEvents.length;
     if (scope === 'period') {
       items = items.filter((it) => {
         if (it.source === 'tx') return inPeriod(it.date, period);
-        if (it.source === 'fee') return (it.ymList || []).some((ym) => ym >= period.start && ym <= period.end);
-        return false;
+        return true; // 部費イベントは buildFeeEvents で既に期間絞り込み済み
       });
       // ユニフォーム積立金（自動）を期間末に追加
       const feeT = await computeFeeTotals();
@@ -589,12 +596,11 @@
     const incomeTotal = incomeRows.reduce((s, r) => s + r.amount, 0);
     const expenseTotal = expenseRows.reduce((s, r) => s + r.amount, 0);
 
-    // 全取引リスト（古い順・残高付き）
-    const feeEvents = await buildFeeEvents();
+    // 全取引リスト（古い順・残高付き）※部費イベントは期間内分のみに切り詰め
+    const feeEvents = await buildFeeEvents(period);
     const itemsAll = [
       ...txs.map((t) => ({ date: t.date, type: t.type, category: t.category, desc: t.desc || '', amount: t.amount, source: 'tx', id: t.id })),
-      ...feeEvents.filter((e) => (e.ymList || []).some((ym) => ym >= period.start && ym <= period.end))
-        .map((e) => ({ date: e.date, type: e.type, category: e.category, desc: e.desc, amount: e.amount, source: 'fee', memberId: e.memberId, ymList: e.ymList }))
+      ...feeEvents.map((e) => ({ date: e.date, type: e.type, category: e.category, desc: e.desc, amount: e.amount, source: 'fee', memberId: e.memberId, ymList: e.ymList }))
     ];
     if (unifondPer > 0 && fee.done1Count > 0) {
       const [py, pm] = period.end.split('-').map(Number);
@@ -736,8 +742,8 @@
         </table>
         <p class="report-fee-legend">●=参加・集金済 ／ ◯=参加・未集金 ／ – =対象外</p>`;
 
-    // --- 納付履歴（時系列） ---
-    const events = (await buildFeeEvents()).sort((a, b) => a.date < b.date ? -1 : 1);
+    // --- 納付履歴（時系列・指定期間内のみ） ---
+    const events = (await buildFeeEvents(period)).sort((a, b) => a.date < b.date ? -1 : 1);
     const eventListHtml = events.length === 0
       ? '<p>（納付履歴はまだありません）</p>'
       : `<table class="report-event-list">
