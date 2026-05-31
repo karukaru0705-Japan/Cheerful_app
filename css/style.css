@@ -39,6 +39,7 @@ body {
   display: flex; align-items: center; justify-content: space-between;
   padding-left: 16px; padding-right: 16px;
   box-shadow: 0 2px 8px rgba(0,0,0,.12);
+  transform: translateZ(0); /* GPU合成でスクロール中の再描画を軽量化 */
 }
 .app-title { display: flex; flex-direction: column; }
 .app-name { font-weight: 700; font-size: 17px; }
@@ -57,6 +58,7 @@ body {
 .card {
   background: var(--card); border-radius: 14px; padding: 16px;
   box-shadow: 0 1px 3px rgba(0,0,0,.06); margin-bottom: 16px;
+  contain: layout style; /* 各カードの再計算範囲を限定 */
 }
 
 /* セグメント（収入/支出切替） */
@@ -207,6 +209,7 @@ body {
   padding-bottom: env(safe-area-inset-bottom);
   background: #fff; border-top: 1px solid var(--border);
   display: flex;
+  transform: translateZ(0); /* GPU合成 */
 }
 .nav-btn {
   flex: 1; border: none; background: none; color: var(--muted);

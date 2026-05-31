@@ -69,6 +69,7 @@
   async function boot() {
     await DB.init();
     state.settings = await DB.getAllSettings();
+    await autoAdvancePeriodIfNeeded();
     bindNav();
     bindEntryForm();
     bindSettings();
@@ -99,6 +100,30 @@
     const [py, pm] = period.end.split('-').map(Number);
     const lastDay = new Date(py, pm, 0).getDate();
     return `${period.end}-${String(lastDay).padStart(2, '0')}`;
+  }
+
+  // 起動時の自動期間更新：今日が現在の集計期間外で、年度(12ヶ月)スケールなら今期に自動切替
+  async function autoAdvancePeriodIfNeeded() {
+    const s = state.settings;
+    if (!s) return;
+    // 年度モード（スケール=12ヶ月、4月始まり）のときのみ自動切替する
+    const isFiscalYearScale = (s.periodMode === 'scale') && (Number(s.periodScale) === 12);
+    if (!isFiscalYearScale) return;
+    // 今期の開始月（既存設定）の月が「4」でなければ年度モードと判断しない（4月始まり前提）
+    if (!s.periodStart || s.periodStart.split('-')[1] !== '04') return;
+    const period = getPeriod(s);
+    const today = todayStr();
+    if (inPeriod(today, period)) return; // 期間内ならそのまま
+    // 今日を含む新年度に切替
+    const now = new Date();
+    const fy = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+    const newStart = `${fy}-04`;
+    const newEnd = `${fy + 1}-03`;
+    if (s.periodStart === newStart) return;
+    await DB.setSetting('periodStart', newStart);
+    await DB.setSetting('periodEnd', newEnd);
+    state.settings = await DB.getAllSettings();
+    setTimeout(() => toast(`📅 新年度（${fy}年度）に自動切替しました`), 800);
   }
 
   async function updateEntryPeriodHint() {
