@@ -77,7 +77,8 @@
     bindList();
     $('#undoBtn').addEventListener('click', undoLast);
     updateUndoButton();
-    $('#entryDate').value = todayStr();
+    $('#entryDate').value = defaultEntryDate();
+    await updateEntryPeriodHint();
     await refreshCategories();
     await refreshHeader();
     await renderList();
@@ -87,6 +88,33 @@
   function todayStr() {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  // 入力フォームの初期日付：今日が集計期間内なら今日、期間外なら期間末
+  function defaultEntryDate() {
+    const today = todayStr();
+    const period = getPeriod(state.settings || {});
+    if (inPeriod(today, period)) return today;
+    // 期間外: 期間末の日付（または期間内の最後）
+    const [py, pm] = period.end.split('-').map(Number);
+    const lastDay = new Date(py, pm, 0).getDate();
+    return `${period.end}-${String(lastDay).padStart(2, '0')}`;
+  }
+
+  async function updateEntryPeriodHint() {
+    const s = await DB.getAllSettings();
+    const period = getPeriod(s);
+    const hint = $('#entryPeriodHint');
+    if (!hint) return;
+    const today = todayStr();
+    const todayInPeriod = inPeriod(today, period);
+    if (todayInPeriod) {
+      hint.className = 'entry-period-hint';
+      hint.innerHTML = `🗓 集計期間：<strong>${periodLabel(period)}</strong> ／ この期間内の日付の取引が集計に反映されます`;
+    } else {
+      hint.className = 'entry-period-hint warn';
+      hint.innerHTML = `⚠️ 集計期間：<strong>${periodLabel(period)}</strong>（今日 ${today} は<strong>期間外</strong>です）<br>このまま登録すると集計に反映されません。日付を期間内に変更してください`;
+    }
   }
 
   // ---------- ナビゲーション ----------
@@ -209,7 +237,13 @@
     } else {
       await DB.addTransaction(data);
     }
-    toastUndo(state.editingId ? '取引を更新しました' : '取引を追加しました');
+    // 期間外なら警告つきトースト
+    const period = getPeriod(state.settings);
+    if (!inPeriod(data.date, period)) {
+      toastUndo(`⚠️ 保存しました（${data.date}は指定期間外のため集計には反映されません。一覧の「全期間」で確認可能）`);
+    } else {
+      toastUndo(state.editingId ? '取引を更新しました' : '取引を追加しました');
+    }
     resetEntryForm();
     await refreshHeader();
     await renderList();
@@ -219,7 +253,7 @@
     state.editingId = null;
     $('#entryId').value = '';
     $('#entryForm').reset();
-    $('#entryDate').value = todayStr();
+    $('#entryDate').value = defaultEntryDate();
     clearPhotoInput();
     state.removePhoto = false;
     $('#entrySubmit').textContent = '追加する';
@@ -1342,9 +1376,11 @@
       await DB.setSetting('periodCustomMonths', form.periodCustomMonths);
     }
     toast('期間を保存しました');
+    state.settings = await DB.getAllSettings();
     await refreshHeader();
     await renderList();
-    renderPeriodFields(await DB.getAllSettings());
+    await updateEntryPeriodHint();
+    renderPeriodFields(state.settings);
   }
 
   async function renderCatLists() {
