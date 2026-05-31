@@ -42,6 +42,11 @@
   }
   function fmtYM(ym) { const [y, m] = ym.split('-'); return `${y}年${Number(m)}月`; }
   function periodLabel(period) { return `${fmtYM(period.start)}〜${fmtYM(period.end)}`; }
+  // 期間の開始年から日本式年度ラベルを自動算出（例：2025-04開始 → 「2025年度」）
+  function fiscalYearLabel(period) {
+    const [y] = period.start.split('-').map(Number);
+    return `${y}年度`;
+  }
 
   let state = {
     type: '支出',          // 入力フォームの収入/支出
@@ -106,7 +111,7 @@
   async function refreshHeader() {
     state.settings = await DB.getAllSettings();
     const period = getPeriod(state.settings);
-    const label = state.settings.year ? `${state.settings.year}（${periodLabel(period)}）` : periodLabel(period);
+    const label = `${fiscalYearLabel(period)}（${periodLabel(period)}）`;
     $('#headerYear').textContent = label;
     const { balance } = await computeBalances();
     $('#headerBalance').textContent = yen(balance);
@@ -574,7 +579,7 @@
       return { ...it, runningBalance: run };
     });
 
-    return { year: settings.year || '', periodText: periodLabel(period), carryover, incomeRows, expenseRows, incomeTotal, expenseTotal, balance: incomeTotal - expenseTotal, allItems };
+    return { year: fiscalYearLabel(period), periodText: periodLabel(period), carryover, incomeRows, expenseRows, incomeTotal, expenseTotal, balance: incomeTotal - expenseTotal, allItems };
   }
 
   async function renderSummary() {
@@ -1505,6 +1510,13 @@
   function registerSW() {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW登録失敗', e));
+      // 新しいSWが有効化されたら自動でリロード（毎回ではなく1回のみ）
+      let reloaded = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloaded) return;
+        reloaded = true;
+        window.location.reload();
+      });
     }
   }
 

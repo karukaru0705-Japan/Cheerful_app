@@ -1,5 +1,5 @@
 // チアフル会計 Service Worker
-const CACHE = 'cheerful-kaikei-v19';
+const CACHE = 'cheerful-kaikei-v20';
 const ASSETS = [
   './',
   './index.html',
@@ -25,17 +25,30 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-// キャッシュ優先（オフライン対応）。なければネットワーク。
+// HTML/CSS/JSはネットワーク優先（更新が即座に反映される）
+// 画像・ライブラリはキャッシュ優先（変更頻度低くサイズ大）
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
-  e.respondWith(
-    caches.match(e.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(e.request).then((res) => {
+  const url = new URL(e.request.url);
+  const cacheFirst = /\.(png|jpg|jpeg|webp|svg|woff|woff2|ico)$/i.test(url.pathname)
+    || url.pathname.includes('/lib/');
+  if (cacheFirst) {
+    // キャッシュ優先
+    e.respondWith(
+      caches.match(e.request).then((cached) => cached || fetch(e.request).then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
         return res;
-      }).catch(() => cached);
-    })
-  );
+      }))
+    );
+  } else {
+    // ネットワーク優先（オフライン時のみキャッシュ）
+    e.respondWith(
+      fetch(e.request).then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
+        return res;
+      }).catch(() => caches.match(e.request))
+    );
+  }
 });

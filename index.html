@@ -221,10 +221,11 @@
           <span class="field-label">チーム名・会名</span>
           <input type="text" id="setTeam" placeholder="例：チアフル" />
         </label>
-        <label class="field">
-          <span class="field-label">年度名（報告書の表題・Excelファイル名に使用）</span>
-          <input type="text" id="setYear" placeholder="例：2025年度" />
-        </label>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 10px;padding:8px 10px;background:var(--bg);border-radius:8px;line-height:1.5">
+          ℹ️ <strong>年度名</strong>は集計期間の開始月から自動算出されます<br>
+          例：2025年4月開始 → <strong>2025年度</strong>／2026年4月開始 → <strong>2026年度</strong>
+        </p>
+        <input type="hidden" id="setYear" />
         <label class="field">
           <span class="field-label">会計担当者名（報告書に記載）</span>
           <input type="text" id="setTreasurer" placeholder="例：山田　花子" />
