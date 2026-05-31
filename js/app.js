@@ -733,20 +733,6 @@
 
     const today = todayStr();
 
-    // === ページ番号の概算（A4・標準フォント想定 = 1ページ約28行） ===
-    const ROWS_PER_PAGE = 28;
-    const sumPages = Math.max(1, Math.ceil((agg.incomeRows.length + agg.expenseRows.length + 4) / ROWS_PER_PAGE));
-    const feeGridPages = Math.max(1, Math.ceil((feeT.members.length + 1) / 25));
-    const feeHistPages = Math.max(1, Math.ceil((events.length + 2) / ROWS_PER_PAGE));
-    const allTxPages = Math.max(1, Math.ceil(((agg.allItems || []).length + 2) / ROWS_PER_PAGE));
-    // 表紙=1, 目次=2, 以降 3〜
-    let pn = 3;
-    const pSum = pn; pn += sumPages;
-    const pFee = pn; pn += feeGridPages;
-    const pHist = pn; pn += feeHistPages;
-    const pAll = pn; pn += allTxPages;
-    const pAudit = pn;
-
     $('#reportBody').innerHTML = `
       <!-- 表紙 -->
       <div class="report-page cover-page">
@@ -762,13 +748,12 @@
       <div class="report-page toc-page">
         <h2 class="page-title">目次</h2>
         <ol class="toc-list">
-          <li>収支報告 <span class="toc-page-num">(p.${pSum})</span></li>
-          <li>部費納付一覧（メンバー×月） <span class="toc-page-num">(p.${pFee})</span></li>
-          <li>部費納付履歴（日付順） <span class="toc-page-num">(p.${pHist})</span></li>
-          <li>全取引一覧（古い順・残高付き） <span class="toc-page-num">(p.${pAll})</span></li>
-          <li>監査確認 <span class="toc-page-num">(p.${pAudit})</span></li>
+          <li>収支報告</li>
+          <li>部費納付一覧（メンバー×月）</li>
+          <li>部費納付履歴（日付順）</li>
+          <li>全取引一覧（古い順・残高付き）</li>
+          <li>監査確認</li>
         </ol>
-        <p class="toc-note">※ページ番号は目安です（取引数によって前後する場合があります）</p>
       </div>
 
       <!-- 1. 収支報告 -->
