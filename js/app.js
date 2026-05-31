@@ -492,9 +492,9 @@
     const url = URL.createObjectURL(blob);
     state.objectUrls.push(url);
     $('#imgModalImg').src = url;
-    $('#imgModal').classList.remove('hidden');
+    openModalEl('imgModal');
   }
-  $('#imgModal').addEventListener('click', () => $('#imgModal').classList.add('hidden'));
+  $('#imgModal').addEventListener('click', () => closeModalEl('imgModal'));
 
   // ---------- 集計 ----------
   async function aggregate() {
@@ -640,8 +640,8 @@
       try { ExcelExport.download(agg); toast('Excelを書き出しました'); }
       catch (err) { console.error(err); toast('書き出しに失敗しました'); }
     });
-    $('#openReport').addEventListener('click', async () => { await renderReport(); $('#reportModal').classList.remove('hidden'); });
-    $('#reportClose').addEventListener('click', () => $('#reportModal').classList.add('hidden'));
+    $('#openReport').addEventListener('click', async () => { await renderReport(); openModalEl('reportModal'); });
+    $('#reportClose').addEventListener('click', () => closeModalEl('reportModal'));
     $('#reportPrint').addEventListener('click', () => window.print());
   }
 
@@ -1128,10 +1128,10 @@
     });
     $('#openGallery').addEventListener('click', async () => {
       await renderGallery();
-      $('#galleryModal').classList.remove('hidden');
+      openModalEl('galleryModal');
     });
-    $('#galleryClose').addEventListener('click', () => $('#galleryModal').classList.add('hidden'));
-    $('#galleryModal').addEventListener('click', (e) => { if (e.target.id === 'galleryModal') $('#galleryModal').classList.add('hidden'); });
+    $('#galleryClose').addEventListener('click', () => closeModalEl('galleryModal'));
+    $('#galleryModal').addEventListener('click', (e) => { if (e.target.id === 'galleryModal') closeModalEl('galleryModal'); });
   }
 
   async function renderGallery() {
@@ -1472,6 +1472,31 @@
     else if (v === 'settings') await renderSettings();
     updateUndoButton();
     toast(`「${last.label}」を元に戻しました`);
+  }
+
+  // ---------- モーダル時のbody固定（iOS Safariのスクロール安定化） ----------
+  let savedScrollY = 0;
+  function lockBodyScroll() {
+    if (document.body.classList.contains('modal-open')) return;
+    savedScrollY = window.scrollY;
+    document.body.style.top = `-${savedScrollY}px`;
+    document.body.classList.add('modal-open');
+  }
+  function unlockBodyScroll() {
+    if (!document.body.classList.contains('modal-open')) return;
+    document.body.classList.remove('modal-open');
+    document.body.style.top = '';
+    window.scrollTo(0, savedScrollY);
+  }
+  function openModalEl(id) {
+    lockBodyScroll();
+    const el = $(`#${id}`);
+    el.classList.remove('hidden');
+    if (el.scrollTop !== undefined) el.scrollTop = 0;
+  }
+  function closeModalEl(id) {
+    $(`#${id}`).classList.add('hidden');
+    unlockBodyScroll();
   }
 
   function registerSW() {
