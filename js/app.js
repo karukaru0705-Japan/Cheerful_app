@@ -762,7 +762,7 @@
       <!-- 1. 収支報告 -->
       <div class="report-page">
         <h2 class="page-title">1. 収支報告</h2>
-        <div class="page-sub">${esc(agg.year || '')}　${esc(agg.periodText)}</div>
+        <div class="page-sub">期間：${esc(agg.periodText)}</div>
         <table class="report-table">
           <tr><th></th><th>摘要</th><th>金額</th><th>内訳</th></tr>
           ${incRows}

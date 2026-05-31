@@ -466,11 +466,18 @@ body.modal-open { overflow: hidden; position: fixed; width: 100%; }
 
   /* === 印刷時の実寸サイズ調整（A4基準） === */
   .report-body { font-size: 10.5pt; line-height: 1.45; }
-  .page-title { font-size: 15pt; margin: 0 0 5mm 0; padding-bottom: 1.5mm; border-bottom: 1.2pt solid #000; }
-  .page-sub { font-size: 10pt; color: #444 !important; margin: -3mm 0 4mm; }
+  .page-title { font-size: 15pt; margin: 0 0 4mm 0; padding-bottom: 1.5mm; border-bottom: 1.2pt solid #000; }
+  .page-sub { font-size: 10pt; color: #444 !important; margin: 2mm 0 6mm; }
 
-  /* 表紙 */
-  .cover-page { min-height: 0 !important; padding: 30mm 10mm; }
+  /* 表紙：A4の中央に縦横とも中央寄せ */
+  .cover-page {
+    min-height: 250mm !important;
+    padding: 0 10mm !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
   .cover-team { font-size: 22pt !important; margin-bottom: 8mm; }
   .cover-title { font-size: 28pt !important; margin: 8mm 0 24mm; letter-spacing: 2pt; }
   .cover-meta { font-size: 12pt; line-height: 2; }
@@ -480,9 +487,14 @@ body.modal-open { overflow: hidden; position: fixed; width: 100%; }
   .toc-list li { margin-bottom: 2mm; }
 
   /* ==== 1ページに収めたい：収支報告 ==== */
-  .report-table { font-size: 9.5pt; }
-  .report-table th, .report-table td { padding: 1.2mm 2mm; line-height: 1.3; }
-  .report-table td.vlabel { width: 7mm; letter-spacing: 2pt; }
+  /* 収入表と支出表の列幅を完全に揃える */
+  .report-table { font-size: 9.5pt; table-layout: fixed; width: 100%; }
+  .report-table th, .report-table td { padding: 1.2mm 2mm; line-height: 1.3; overflow: hidden; word-break: break-word; }
+  .report-table th:nth-child(1), .report-table td:nth-child(1) { width: 8mm; }   /* 区分(vlabel) */
+  .report-table th:nth-child(2), .report-table td:nth-child(2) { width: 42mm; }  /* 摘要 */
+  .report-table th:nth-child(3), .report-table td:nth-child(3) { width: 26mm; }  /* 金額 */
+  /* 4列目(内訳)は残り幅 */
+  .report-table td.vlabel { letter-spacing: 2pt; }
   .report-table td.dtl { font-size: 8pt; line-height: 1.3; }
   .report-balance { font-size: 13pt; padding: 3mm; margin-top: 4mm; }
 
