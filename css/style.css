@@ -349,9 +349,9 @@ body.modal-open { overflow: hidden; position: fixed; width: 100%; }
 .report-page .page-title { font-size: 17px; font-weight: 700; margin: 0 0 4px; padding-bottom: 6px; border-bottom: 2px solid #333; }
 .report-page .page-sub { font-size: 13px; color: #555; margin-bottom: 14px; }
 
-.cover-page { min-height: 70vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
-.cover-team { font-size: 26px; font-weight: 700; margin-bottom: 12px; }
-.cover-title { font-size: 32px; font-weight: 900; margin: 12px 0 40px; letter-spacing: 2px; }
+.cover-page { min-height: 70vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px 10px; }
+.cover-team { font-size: clamp(20px, 5.5vw, 26px); font-weight: 700; margin-bottom: 12px; white-space: nowrap; }
+.cover-title { font-size: clamp(20px, 6.4vw, 32px); font-weight: 900; margin: 12px 0 40px; letter-spacing: 1px; white-space: nowrap; line-height: 1.3; }
 .cover-meta { font-size: 14px; color: #444; line-height: 2; }
 
 .toc-list { font-size: 16px; line-height: 2.2; margin: 12px 16px; }
@@ -392,19 +392,48 @@ body.modal-open { overflow: hidden; position: fixed; width: 100%; }
 
 /* 印刷／PDF: アプリのUIを隠して報告書だけ印刷 */
 @media print {
-  body { padding: 0 !important; background: #fff !important; }
-  .app-header, .bottom-nav, main, #toast, #imgModal, #feeSheet { display: none !important; }
-  .report-modal { position: static !important; background: #fff !important; padding: 0 !important; overflow: visible !important; }
+  /* ベースリセット */
+  html, body, body.modal-open {
+    margin: 0 !important; padding: 0 !important;
+    background: #fff !important; color: #000 !important;
+    position: static !important; top: auto !important;
+    height: auto !important; width: auto !important;
+    overflow: visible !important;
+  }
+  /* アプリのUIを全て隠す */
+  .app-header, .bottom-nav, main, #toast,
+  #imgModal, #galleryModal,
+  #feeSheet, #bulkPaySheet, #retireSheet,
   .no-print { display: none !important; }
-  .report-body { max-width: none !important; box-shadow: none !important; border-radius: 0 !important; padding: 0 !important; }
-  .report-table td.dtl { color: #000; }
-  /* 多ページ：各セクションの先頭で改ページ */
-  .report-page { padding: 0; }
-  .report-page + .report-page { page-break-before: always; border-top: none; margin-top: 0; padding-top: 0; }
-  /* 長い表は複数ページに分割可。ただし行・監査行は分割しない */
-  .report-table tr, .report-fee-grid tr, .report-event-list tr, .report-tx-list tr, .audit-row-big { page-break-inside: avoid; }
-  thead { display: table-header-group; } /* 各ページに見出しを繰り返し */
+  /* 報告書モーダルを通常フローへ戻す（contain/transform解除） */
+  .report-modal {
+    position: static !important; background: #fff !important;
+    inset: auto !important; padding: 0 !important;
+    overflow: visible !important; height: auto !important;
+    transform: none !important; contain: none !important;
+  }
+  .report-body {
+    max-width: none !important; box-shadow: none !important;
+    border-radius: 0 !important; padding: 0 !important;
+  }
+  .report-page { padding: 0 !important; contain: none !important; }
+  /* 各セクションの先頭で改ページ */
+  .report-page + .report-page {
+    page-break-before: always !important;
+    break-before: page !important;
+    border-top: none !important; margin-top: 0 !important; padding-top: 0 !important;
+  }
+  /* 長い表は複数ページに分割可。行と監査行は分割しない */
+  .report-table tr, .report-fee-grid tr, .report-event-list tr, .report-tx-list tr, .audit-row-big {
+    page-break-inside: avoid; break-inside: avoid;
+  }
+  /* 表ヘッダを各ページに繰り返し */
+  thead { display: table-header-group; }
   tfoot { display: table-footer-group; }
+  /* 印刷時のセル日付は黒に */
+  .report-table td.dtl, .fee-date { color: #000 !important; }
+  /* 文字色を強制 */
+  .report-table tr.tot td, .audit-label-big, .page-title { color: #000 !important; }
   @page { size: A4; margin: 14mm; }
 }
 
