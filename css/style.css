@@ -379,6 +379,12 @@ body.modal-open { overflow: hidden; position: fixed; width: 100%; }
 .report-tx-list tr.auto td { background: rgba(245, 158, 11, .07); font-style: italic; }
 .report-tx-list tr.tot td { font-weight: 700; background: #f4f4f4; }
 
+/* 目次 */
+.toc-list { font-size: 15px; line-height: 2; padding-left: 1.2em; }
+.toc-list li { margin-bottom: 4px; }
+.toc-page-num { color: #555; font-weight: 500; margin-left: 6px; font-size: 13px; }
+.toc-note { font-size: 11px; color: #666; margin-top: 14px; }
+
 .audit-block { margin-top: 20px; }
 .audit-row { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 36px; padding-bottom: 8px; border-bottom: 1.5px solid #333; }
 .audit-row .audit-label { flex: 0 0 96px; font-weight: 700; }
@@ -435,6 +441,46 @@ body.modal-open { overflow: hidden; position: fixed; width: 100%; }
   /* 文字色を強制 */
   .report-table tr.tot td, .audit-label-big, .page-title { color: #000 !important; }
   @page { size: A4; margin: 14mm; }
+
+  /* === 印刷時の実寸サイズ調整（A4基準） === */
+  .report-body { font-size: 11pt; line-height: 1.5; }
+  .page-title { font-size: 16pt; margin: 0 0 8mm 0; padding-bottom: 2mm; border-bottom: 1.5pt solid #000; }
+  .page-sub { font-size: 11pt; color: #444 !important; margin: -4mm 0 6mm; }
+
+  /* 表紙 */
+  .cover-page { min-height: 0 !important; padding: 30mm 10mm; }
+  .cover-team { font-size: 22pt !important; margin-bottom: 8mm; }
+  .cover-title { font-size: 28pt !important; margin: 8mm 0 24mm; letter-spacing: 2pt; }
+  .cover-meta { font-size: 12pt; line-height: 2; }
+
+  /* 目次 */
+  .toc-list { font-size: 13pt; line-height: 2.2; padding-left: 8mm; }
+  .toc-list li { margin-bottom: 2mm; }
+  .toc-page-num { color: #444; margin-left: 6mm; font-size: 12pt; }
+
+  /* 表（収支報告） */
+  .report-table { font-size: 10.5pt; }
+  .report-table th, .report-table td { padding: 2mm 3mm; }
+  .report-table td.vlabel { width: 8mm; letter-spacing: 3pt; }
+  .report-table td.dtl { font-size: 9pt; }
+  .report-balance { font-size: 14pt; padding: 4mm; margin-top: 6mm; }
+
+  /* 部費グリッド */
+  .report-fee-grid { font-size: 9pt; }
+  .report-fee-grid th, .report-fee-grid td { padding: 1.5mm; }
+  .report-fee-legend { font-size: 9pt; }
+
+  /* 納付履歴・全取引 */
+  .report-event-list, .report-tx-list { font-size: 10pt; }
+  .report-event-list th, .report-event-list td,
+  .report-tx-list th, .report-tx-list td { padding: 1.5mm 2.5mm; }
+  .report-tx-list { font-size: 9.5pt; }
+
+  /* 監査確認：サイン欄を実寸で大きく（A4に合わせて約35mm高） */
+  .audit-row-big { margin-bottom: 12mm; }
+  .audit-label-big { font-size: 13pt; margin-bottom: 3mm; }
+  .audit-sign-box { height: 35mm; border: 1.2pt solid #000; background: #fff; margin-bottom: 3mm; }
+  .audit-date-line { font-size: 12pt; }
 }
 
 .hidden { display: none !important; }
