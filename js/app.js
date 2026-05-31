@@ -960,9 +960,14 @@
     }
   }
 
-  function openFeeSheet(memberId, ym, name) {
+  async function openFeeSheet(memberId, ym, name) {
     state.feeTarget = { memberId, ym };
     $('#feeSheetTitle').textContent = `${name || ''}　${Number(ym.split('-')[1])}月分`;
+    // 既存セルの納付日を読み込み（無ければ今日）
+    const cellMap = await DB.getFeeCellMap();
+    const existing = cellMap[`${memberId}|${ym}`];
+    const existingDate = existing && existing.paidDate;
+    $('#feeCellDate').value = existingDate || todayStr();
     $('#feeSheet').classList.remove('hidden');
   }
   function closeFeeSheet() { $('#feeSheet').classList.add('hidden'); state.feeTarget = null; }
@@ -1196,7 +1201,8 @@
       if (status === 'cancel') { closeFeeSheet(); return; }
       if (state.feeTarget) {
         await pushUndoSnapshot('部費セル変更');
-        const paidDate = status === 'done1' ? todayStr() : null;
+        // 「集金済」の時のみ納付日を記録（入力欄の値、無効なら今日）
+        const paidDate = status === 'done1' ? ($('#feeCellDate').value || todayStr()) : null;
         await DB.setFeeCell(`${state.feeTarget.memberId}|${state.feeTarget.ym}`, status, paidDate);
         closeFeeSheet();
         await renderFee();

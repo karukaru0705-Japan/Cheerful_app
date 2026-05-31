@@ -370,6 +370,10 @@
   <div id="feeSheet" class="sheet-backdrop hidden">
     <div class="sheet">
       <div class="sheet-title" id="feeSheetTitle">状態を選択</div>
+      <label class="field">
+        <span class="field-label">納付日（「集金済」を選ぶと記録されます）</span>
+        <input type="date" id="feeCellDate" />
+      </label>
       <button type="button" class="sheet-btn" data-status="done1"><span class="fee-mark done">●</span>参加・集金済（1,000円）</button>
       <button type="button" class="sheet-btn" data-status="plan1"><span class="fee-mark plan">◯</span>参加・未集金（1,000円）</button>
       <button type="button" class="sheet-btn muted" data-status="">対象外（空白にする）</button>
