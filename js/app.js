@@ -1285,12 +1285,13 @@
     $('#bulkPaySheet').addEventListener('click', (e) => { if (e.target.id === 'bulkPaySheet') closeBulkPaySheet(); });
     $('#bulkPayCancel').addEventListener('click', closeBulkPaySheet);
     $('#bulkPayConfirm').addEventListener('click', confirmBulkPay);
-    ['#bulkPayStart', '#bulkPayEnd', '#bulkPayDate'].forEach((sel) => $(sel).addEventListener('input', updateBulkPayAmount));
+    // 月/日付ピッカーは change のみ（ピッカー回転中の連続発火を避けスクロール鈍化を防止）
+    ['#bulkPayStart', '#bulkPayEnd', '#bulkPayDate'].forEach((sel) => $(sel).addEventListener('change', updateBulkPayAmount));
     // 退部処理
     $('#retireSheet').addEventListener('click', (e) => { if (e.target.id === 'retireSheet') closeRetireSheet(); });
     $('#retireCancel').addEventListener('click', closeRetireSheet);
     $('#retireConfirm').addEventListener('click', confirmRetire);
-    $('#retireMonth').addEventListener('input', updateRetirePreview);
+    $('#retireMonth').addEventListener('change', updateRetirePreview);
     // トップの一括入力
     $('#openBulkAll').addEventListener('click', openBulkAll);
     $$('#feeSheet .sheet-btn').forEach((btn) => btn.addEventListener('click', async () => {
@@ -1335,8 +1336,11 @@
       $('#customMonthsField').classList.toggle('hidden', $('#periodScale').value !== 'custom');
       updatePeriodPreview();
     });
-    ['#periodCustomMonths', '#periodStartScale', '#periodStartManual', '#periodEndManual'].forEach((sel) => {
-      $(sel).addEventListener('input', updatePeriodPreview);
+    // 数値は input（即時反映）、月ピッカーは change（確定時のみ）
+    // input にすると iOS のホイールピッカー回転中に大量発火してスクロールが鈍る
+    $('#periodCustomMonths').addEventListener('input', updatePeriodPreview);
+    ['#periodStartScale', '#periodStartManual', '#periodEndManual'].forEach((sel) => {
+      $(sel).addEventListener('change', updatePeriodPreview);
     });
     $('#savePeriod').addEventListener('click', savePeriodSettings);
 
