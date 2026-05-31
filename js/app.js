@@ -712,7 +712,10 @@
     // --- 全取引一覧（古い順・残高付き）---
     const txListHtml = (agg.allItems && agg.allItems.length > 0)
       ? `<table class="report-tx-list">
-          <thead><tr><th>日付</th><th>種別</th><th>カテゴリ</th><th>内容</th><th class="amt">金額</th><th class="amt">残高</th></tr></thead>
+          <thead>
+            <tr><th class="tx-list-caption" colspan="6">全取引一覧（前ページからの続き／古い順・残高付き）</th></tr>
+            <tr><th>日付</th><th>種別</th><th>カテゴリ</th><th>内容</th><th class="amt">金額</th><th class="amt">残高</th></tr>
+          </thead>
           <tbody>
           ${agg.allItems.map((it) => {
             const sign = it.type === '収入' ? '+' : '−';
@@ -785,8 +788,8 @@
         ${eventListHtml}
       </div>
 
-      <!-- 4. 全取引一覧 -->
-      <div class="report-page">
+      <!-- 4. 全取引一覧（複数ページOK） -->
+      <div class="report-page tx-page">
         <h2 class="page-title">4. 全取引一覧（古い順・残高付き）</h2>
         ${txListHtml}
       </div>
