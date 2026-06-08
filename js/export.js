@@ -40,8 +40,9 @@ const ExcelExport = (() => {
     // --- 全取引シート（古い順、残高付き）---
     if (agg.allItems && Array.isArray(agg.allItems)) {
       const allAOA = [['日付', '種別', 'カテゴリ', '内容', '金額', '残高']];
+      const fmtDate = (d) => (!d || d === '0000-00-00') ? '日付未記録' : d;
       agg.allItems.forEach((it) => {
-        allAOA.push([it.date || '', it.type || '', it.category || '', it.desc || '', it.amount || 0, it.runningBalance != null ? it.runningBalance : '']);
+        allAOA.push([fmtDate(it.date), it.type || '', it.category || '', it.desc || '', it.amount || 0, it.runningBalance != null ? it.runningBalance : '']);
       });
       const wsAll = XLSX.utils.aoa_to_sheet(allAOA);
       wsAll['!cols'] = [{ wch: 12 }, { wch: 6 }, { wch: 14 }, { wch: 32 }, { wch: 12 }, { wch: 12 }];

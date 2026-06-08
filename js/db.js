@@ -199,19 +199,30 @@ const DB = (() => {
   // ---- 部費セル（メンバー×月の状態） ----
   // status: 'plan1'|'done1'（なし=対象外）。paidDate: 'YYYY-MM-DD'（集金済の納付日）
   // feeAtSet: セル設定時の月会費レート（後から会費改定しても過去金額が変わらないよう保存）
+  // IDBはトランザクションを跨ぐawaitで自動close → 短命tx 3つに分離する（致命バグ修正）
   async function setFeeCell(key, status, paidDate) {
-    const s = await tx('feeCells', 'readwrite');
-    if (!status) return reqP(s.delete(key));
-    // 既存セルがあればfeeAtSetを保持、無ければ現在の月会費でスナップショット
-    const cur = await reqP(s.get(key));
-    let feeAtSet = cur && cur.feeAtSet;
+    // 削除パスは独立した短命trxで完結
+    if (!status) {
+      const del = await tx('feeCells', 'readwrite');
+      return reqP(del.delete(key));
+    }
+    // 1) 既存セルの feeAtSet を読む（readonly短命trx）
+    let feeAtSet = null;
+    {
+      const ro = await tx('feeCells');
+      const cur = await reqP(ro.get(key));
+      if (cur && cur.feeAtSet != null) feeAtSet = cur.feeAtSet;
+    }
+    // 2) 必要なら設定から月会費を取得（別trx）
     if (feeAtSet == null) {
       const settings = await getAllSettings();
       feeAtSet = Number(settings.monthlyFee || 1000);
     }
+    // 3) 改めて readwrite trx を開いて put（書き込みのみの短命trx）
     const row = { key, status, feeAtSet };
     if (paidDate) row.paidDate = paidDate;
-    return reqP(s.put(row));
+    const rw = await tx('feeCells', 'readwrite');
+    return reqP(rw.put(row));
   }
   async function getFeeCells() {
     const s = await tx('feeCells');
@@ -264,8 +275,11 @@ const DB = (() => {
       for (const c of data.feeCells) {
         const [oldMid, ym] = c.key.split('|');
         const newMid = memberIdMap[oldMid] != null ? memberIdMap[oldMid] : oldMid;
-        // paidDate を含めて完全に保存
-        await reqP(s.put({ key: `${newMid}|${ym}`, status: c.status, paidDate: c.paidDate || null }));
+        // status, paidDate, feeAtSet（過去レート）すべてを保存
+        const row = { key: `${newMid}|${ym}`, status: c.status };
+        if (c.paidDate) row.paidDate = c.paidDate;
+        if (c.feeAtSet != null) row.feeAtSet = c.feeAtSet;
+        await reqP(s.put(row));
       }
     }
     // 写真IDの再マップ

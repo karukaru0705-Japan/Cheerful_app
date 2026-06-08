@@ -61,6 +61,9 @@
     feeTarget: null,
     bulkPayTarget: null,
     retireTarget: null,
+    editingCategory: null,
+    editingType: null,
+    galleryUrls: [],
     undoStack: []
   };
   const UNDO_LIMIT = 10;
@@ -172,9 +175,10 @@
 
   // ---------- カテゴリ ----------
   async function refreshCategories() {
-    // 自動管理されるカテゴリは入力フォームから除外（収入「部費」と支出「ユニフォーム積立金」）
-    // 「部費」は部費タブのグリッドで、「ユニフォーム積立金」は集金済月数×単価で自動計上
-    const HIDDEN_INCOME = new Set(['部費']);
+    // 自動管理されるカテゴリは入力フォームから除外
+    // 収入: 「部費」（部費タブで管理）、「前年度繰越金」（設定で管理）
+    // 支出: 「ユニフォーム積立金」（自動計上）
+    const HIDDEN_INCOME = new Set(['部費', '前年度繰越金']);
     const HIDDEN_EXPENSE = new Set(['ユニフォーム積立金']);
     const cats = (await DB.getCategories(state.type)).filter((c) => {
       if (state.type === '収入' && HIDDEN_INCOME.has(c.name)) return false;
@@ -188,8 +192,9 @@
       o.value = c.name; o.textContent = c.name;
       sel.appendChild(o);
     });
-    // 編集時に隠しカテゴリの取引を編集できるよう、現在の選択値が無ければ追加
-    if (state.editingCategory && !cats.some((c) => c.name === state.editingCategory)) {
+    // 編集時のみ隠しカテゴリの取引を編集できるよう救済（種別が一致するときだけ）
+    if (state.editingCategory && state.editingType === state.type
+        && !cats.some((c) => c.name === state.editingCategory)) {
       const o = document.createElement('option');
       o.value = state.editingCategory;
       o.textContent = `${state.editingCategory}（自動管理）`;
@@ -256,6 +261,9 @@
       note: ''
     };
 
+    // 写真変更の「前」にUndoスナップショットを取る（Undo整合性のため）
+    const label = state.editingId ? '取引の更新' : '取引の追加';
+    await pushUndoSnapshot(label);
     // 写真処理
     let photoId = null;
     if (state.editingId) {
@@ -269,8 +277,6 @@
     }
     if (photoId) data.photoId = photoId;
 
-    const label = state.editingId ? '取引の更新' : '取引の追加';
-    await pushUndoSnapshot(label);
     if (state.editingId) {
       data.id = state.editingId;
       await DB.updateTransaction(data);
@@ -292,6 +298,12 @@
   function resetEntryForm() {
     state.editingId = null;
     state.editingCategory = null;
+    state.editingType = null;
+    // ObjectURLリーク防止：編集中に積み上げたURLを解放
+    if (state.objectUrls && state.objectUrls.length) {
+      state.objectUrls.forEach((u) => { try { URL.revokeObjectURL(u); } catch (_) {} });
+      state.objectUrls = [];
+    }
     $('#entryId').value = '';
     $('#entryForm').reset();
     $('#entryDate').value = defaultEntryDate();
@@ -308,6 +320,7 @@
     if (!t) return;
     state.editingId = id;
     state.editingCategory = t.category;
+    state.editingType = t.type;
     setType(t.type);
     await refreshCategories();
     $('#entryDate').value = t.date;
@@ -443,7 +456,9 @@
         if (it.source === 'tx') return inPeriod(it.date, period);
         return true; // 部費イベントは buildFeeEvents で既に期間絞り込み済み
       });
-      // ユニフォーム積立金（自動）を期間末に追加
+    }
+    // ユニフォーム積立金（自動）を期間末に追加（指定期間/全期間どちらでも残高整合のため含める）
+    {
       const feeT = await computeFeeTotals();
       const unifondPer = Number(settings.unifondPerMonth || 0);
       if (unifondPer > 0 && feeT.done1Count > 0) {
@@ -528,7 +543,7 @@
 
   function renderListTable(container, withBalance) {
     const rows = withBalance.map((t) => {
-      const dateLabel = t.date === '0000-00-00' ? '未記録' : t.date;
+      const dateLabel = (!t.date || t.date === '0000-00-00') ? '日付未記録' : t.date;
       const sign = t.type === '収入' ? '+' : '−';
       const cls = t.source === 'fee' ? 'fee' : (t.source === 'auto' ? 'auto' : '');
       const delBtn = t.source === 'auto'
@@ -710,10 +725,16 @@
     const actual = settings.actualBalance;
     const box = $('#integrityBox');
     box.classList.remove('hidden');
+    // ユニフォーム積立金の自動分があれば注釈
+    const unifondRow = agg.expenseRows.find((r) => r.cat === 'ユニフォーム積立金');
+    const unifondNote = (unifondRow && unifondRow.amount > 0)
+      ? `<div style="margin-top:6px;font-size:11px;color:var(--muted)">※自動計上のユニフォーム積立金 ${yen(unifondRow.amount)} を含めて差引済み。手元保管している場合は実残高にも含めて入力してください。</div>`
+      : '';
     let inner = `
       <div style="flex:1">
         <div style="font-weight:700;margin-bottom:6px">整合チェック</div>
         <div>計算上の残高：<strong>${yen(agg.balance)}</strong></div>
+        ${unifondNote}
         <label style="display:block;margin-top:8px;font-size:13px;color:var(--muted)">実際の現金残高（数えた金額）</label>
         <input type="number" id="actualBalanceInput" inputmode="numeric" step="1" value="${actual != null ? actual : ''}"
           placeholder="未入力" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;margin-top:4px" />
@@ -829,8 +850,9 @@
           ${agg.allItems.map((it) => {
             const sign = it.type === '収入' ? '+' : '−';
             const rowCls = it.source === 'fee' ? 'fee' : (it.source === 'auto' ? 'auto' : '');
+            const dateDisp = (!it.date || it.date === '0000-00-00') ? '日付未記録' : it.date;
             return `<tr class="${rowCls}">
-              <td>${esc(it.date || '')}</td>
+              <td>${esc(dateDisp)}</td>
               <td>${it.type}</td>
               <td>${esc(it.category)}</td>
               <td>${esc(it.desc || '')}</td>
@@ -1265,11 +1287,24 @@
       await renderGallery();
       openModalEl('galleryModal');
     });
-    $('#galleryClose').addEventListener('click', () => closeModalEl('galleryModal'));
-    $('#galleryModal').addEventListener('click', (e) => { if (e.target.id === 'galleryModal') closeModalEl('galleryModal'); });
+    const closeGallery = () => {
+      closeModalEl('galleryModal');
+      // ObjectURL解放（メモリリーク防止）
+      if (state.galleryUrls && state.galleryUrls.length) {
+        state.galleryUrls.forEach((u) => { try { URL.revokeObjectURL(u); } catch (_) {} });
+        state.galleryUrls = [];
+      }
+    };
+    $('#galleryClose').addEventListener('click', closeGallery);
+    $('#galleryModal').addEventListener('click', (e) => { if (e.target.id === 'galleryModal') closeGallery(); });
   }
 
   async function renderGallery() {
+    // 既存のギャラリーURLがあれば解放（再表示時のリーク防止）
+    if (state.galleryUrls && state.galleryUrls.length) {
+      state.galleryUrls.forEach((u) => { try { URL.revokeObjectURL(u); } catch (_) {} });
+    }
+    state.galleryUrls = [];
     const txs = await DB.getAllTransactions();
     const withPhoto = txs.filter((t) => t.photoId).sort((a, b) => b.date < a.date ? -1 : b.date > a.date ? 1 : 0);
     const grid = $('#galleryGrid');
@@ -1282,7 +1317,7 @@
       const blob = await DB.getPhoto(t.photoId);
       if (!blob) continue;
       const url = URL.createObjectURL(blob);
-      state.objectUrls.push(url);
+      state.galleryUrls.push(url);
       items.push(`<div class="gallery-item" data-id="${t.id}">
         <img src="${url}" alt="" />
         <div class="meta">
@@ -1344,7 +1379,12 @@
       await DB.setSetting('treasurerName', $('#setTreasurer').value.trim());
       await DB.setSetting('carryover', parseInt($('#setCarryover').value, 10) || 0);
       await DB.setSetting('monthlyFee', parseInt($('#setFee').value, 10) || 1000);
-      await DB.setSetting('unifondPerMonth', parseInt($('#setUnifond').value, 10) || 0);
+      // unifondPerMonth: 空欄は 0、未入力(NaN)はデフォルト300
+      {
+        const v = $('#setUnifond').value;
+        const n = v === '' ? 300 : (parseInt(v, 10) || 0);
+        await DB.setSetting('unifondPerMonth', n);
+      }
       toast('設定を保存しました');
       await refreshHeader();
     });
@@ -1467,6 +1507,8 @@
       await DB.setSetting('periodScale', form.periodScale);
       await DB.setSetting('periodCustomMonths', form.periodCustomMonths);
     }
+    // year ラベルを期間と自動同期（Excelファイル名等の整合性）
+    await DB.setSetting('year', fiscalYearLabel(p));
     toast('期間を保存しました');
     state.settings = await DB.getAllSettings();
     await refreshHeader();
@@ -1476,18 +1518,26 @@
   }
 
   async function renderCatLists() {
+    // 自動管理／既定カテゴリは削除ボタン無効化（誤操作で集計ロジックが壊れるのを防止）
+    const PROTECTED = new Set(['前年度繰越金', '部費', 'ユニフォーム積立金', '部費返金']);
     const render = async (type, ul) => {
       const cats = await DB.getCategories(type);
       ul.innerHTML = '';
       cats.forEach((c) => {
         const li = document.createElement('li');
-        li.innerHTML = `<span>${esc(c.name)}</span><button title="削除">✕</button>`;
-        li.querySelector('button').addEventListener('click', async () => {
-          if (!confirm(`カテゴリ「${c.name}」を削除しますか？（過去の取引は残ります）`)) return;
-          await DB.deleteCategory(c.id);
-          await renderCatLists();
-          await refreshCategories();
-        });
+        const protectedCat = PROTECTED.has(c.name);
+        const btnHtml = protectedCat
+          ? `<button title="自動管理カテゴリは削除できません" disabled style="opacity:.3">🔒</button>`
+          : `<button title="削除">✕</button>`;
+        li.innerHTML = `<span>${esc(c.name)}</span>${btnHtml}`;
+        if (!protectedCat) {
+          li.querySelector('button').addEventListener('click', async () => {
+            if (!confirm(`カテゴリ「${c.name}」を削除しますか？（過去の取引は残ります）`)) return;
+            await DB.deleteCategory(c.id);
+            await renderCatLists();
+            await refreshCategories();
+          });
+        }
         ul.appendChild(li);
       });
     };
@@ -1499,6 +1549,12 @@
     const input = $(inputSel);
     const name = input.value.trim();
     if (!name) return;
+    // 同名カテゴリの重複追加を防止（同type内）
+    const existing = await DB.getCategories(type);
+    if (existing.some((c) => c.name === name)) {
+      toast(`「${name}」は既に存在します`);
+      return;
+    }
     await DB.addCategory(type, name, false);
     input.value = '';
     await renderCatLists();
@@ -1618,18 +1674,25 @@
   }
 
   // ---------- モーダル時のbody固定（iOS Safariのスクロール安定化） ----------
+  // ネスト対応：参照カウントで複数モーダル重なっても最後の1つが閉じるまでロック解除しない
   let savedScrollY = 0;
+  let lockCount = 0;
   function lockBodyScroll() {
-    if (document.body.classList.contains('modal-open')) return;
-    savedScrollY = window.scrollY;
-    document.body.style.top = `-${savedScrollY}px`;
-    document.body.classList.add('modal-open');
+    if (lockCount === 0) {
+      savedScrollY = window.scrollY;
+      document.body.style.top = `-${savedScrollY}px`;
+      document.body.classList.add('modal-open');
+    }
+    lockCount++;
   }
   function unlockBodyScroll() {
-    if (!document.body.classList.contains('modal-open')) return;
-    document.body.classList.remove('modal-open');
-    document.body.style.top = '';
-    window.scrollTo(0, savedScrollY);
+    if (lockCount === 0) return;
+    lockCount--;
+    if (lockCount === 0) {
+      document.body.classList.remove('modal-open');
+      document.body.style.top = '';
+      window.scrollTo(0, savedScrollY);
+    }
   }
   function openModalEl(id) {
     lockBodyScroll();
